@@ -1,6 +1,6 @@
 # Ethereum Node Infrastructure
 
-엔터프라이즈급 이더리움 노드 운영을 위한 구조화된 인프라스트럭처입니다.
+이더리움 노드 운영 Tool 입니다.
 
 ## 빠른 시작
 
