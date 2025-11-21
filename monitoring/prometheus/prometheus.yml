@@ -1,0 +1,53 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'ethereum-node'
+    environment: '${ENV}'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'geth'
+    static_configs:
+      - targets: ['geth-${NETWORK}:6060']
+    metrics_path: '/debug/metrics/prometheus'
+
+  - job_name: 'nethermind'
+    static_configs:
+      - targets: ['nethermind-${NETWORK}:6060']
+    metrics_path: '/health'
+
+  - job_name: 'reth'
+    static_configs:
+      - targets: ['reth-${NETWORK}:6060']
+    metrics_path: '/metrics'
+
+  - job_name: 'lighthouse'
+    static_configs:
+      - targets: ['lighthouse-${NETWORK}:5054']
+
+  - job_name: 'teku'
+    static_configs:
+      - targets: ['teku-${NETWORK}:5054']
+
+  - job_name: 'prysm'
+    static_configs:
+      - targets: ['prysm-${NETWORK}:8080']
+
+  - job_name: 'mev-boost'
+    static_configs:
+      - targets: ['mev-boost-${NETWORK}:18550']
+    metrics_path: '/healthz'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+rule_files:
+  - '${PROJECT_ROOT}/monitoring/alerts/alerts.yml'
+

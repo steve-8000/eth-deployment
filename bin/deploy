@@ -1,0 +1,566 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ethereum Node Deployment Script
+# Interactive menu-driven deployment system
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+CONFIG_DIR="$PROJECT_ROOT/config"
+LIB_DIR="$PROJECT_ROOT/lib/deploy"
+TEMP_COMPOSE="$PROJECT_ROOT/docker-compose.generated.yaml"
+
+# Source utilities
+if [ -f "$LIB_DIR/utils.sh" ]; then
+    source "$LIB_DIR/utils.sh"
+fi
+
+# Source state manager
+if [ -f "$LIB_DIR/state-manager.sh" ]; then
+    source "$LIB_DIR/state-manager.sh"
+fi
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Configuration
+SELECTED_EC=""
+SELECTED_CC=""
+SELECTED_MEV=""
+SELECTED_VC=""
+SELECTED_DVT=""
+SELECTED_NETWORK="mainnet"
+
+# Load existing config if available
+load_config() {
+    if [ -f "$CONFIG_DIR/.deployment" ]; then
+        source "$CONFIG_DIR/.deployment"
+    fi
+}
+
+# Save configuration
+save_config() {
+    mkdir -p "$CONFIG_DIR"
+    cat > "$CONFIG_DIR/.deployment" <<EOF
+SELECTED_EC=$SELECTED_EC
+SELECTED_CC=$SELECTED_CC
+SELECTED_MEV=$SELECTED_MEV
+SELECTED_VC=$SELECTED_VC
+SELECTED_DVT=$SELECTED_DVT
+SELECTED_NETWORK=$SELECTED_NETWORK
+EOF
+}
+
+# Print header
+print_header() {
+    clear
+    echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║     Ethereum Node Deployment - Interactive Setup          ║${NC}"
+    echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+# Print current selection
+print_selection() {
+    echo -e "${YELLOW}Current Selection:${NC}"
+    echo -e "  Network:     ${GREEN}${SELECTED_NETWORK:-not set}${NC}"
+    echo -e "  EC:          ${GREEN}${SELECTED_EC:-not set}${NC}"
+    echo -e "  CC:          ${GREEN}${SELECTED_CC:-not set}${NC}"
+    echo -e "  MEV:         ${GREEN}${SELECTED_MEV:-not set}${NC}"
+    echo -e "  VC/DVT:      ${GREEN}${SELECTED_VC:-not set}${NC}"
+    if [ -n "$SELECTED_DVT" ]; then
+        echo -e "  DVT Type:    ${GREEN}${SELECTED_DVT}${NC}"
+    fi
+    echo ""
+}
+
+# Menu 1: Network Selection
+menu_network() {
+    print_header
+    echo -e "${BLUE}1. Network Selection${NC}"
+    if [ -n "$SELECTED_NETWORK" ]; then
+        echo -e "${CYAN}Current: ${GREEN}${SELECTED_NETWORK}${NC}"
+    else
+        echo -e "${CYAN}Current: ${YELLOW}not set${NC}"
+    fi
+    echo ""
+    echo "  1) Mainnet"
+    echo "  2) Goerli (deprecated)"
+    echo "  3) Sepolia"
+    echo "  4) Holesky"
+    echo "  0) Back"
+    echo ""
+    read -p "Select network [1-4]: " choice
+    
+    case $choice in
+        1) SELECTED_NETWORK="mainnet" ;;
+        2) SELECTED_NETWORK="goerli" ;;
+        3) SELECTED_NETWORK="sepolia" ;;
+        4) SELECTED_NETWORK="holesky" ;;
+        0) return ;;
+        *) echo -e "${RED}Invalid selection${NC}"; sleep 1; menu_network ;;
+    esac
+    save_config
+}
+
+# Menu 2: Execution Client Selection
+menu_ec() {
+    print_header
+    echo -e "${BLUE}2. Execution Client Selection${NC}"
+    if [ -n "$SELECTED_EC" ]; then
+        echo -e "${CYAN}Current: ${GREEN}${SELECTED_EC}${NC}"
+    else
+        echo -e "${CYAN}Current: ${YELLOW}not set${NC}"
+    fi
+    echo ""
+    echo "  1) Geth (Go-Ethereum)"
+    echo "  2) Nethermind"
+    echo "  3) Reth"
+    echo "  4) None (Skip Execution Client)"
+    echo "  0) Back (Keep Current Selection)"
+    echo ""
+    read -p "Select Execution Client [1-3, 4, 0]: " choice
+    
+    case $choice in
+        1) SELECTED_EC="geth" ;;
+        2) SELECTED_EC="nethermind" ;;
+        3) SELECTED_EC="reth" ;;
+        4) SELECTED_EC="" ;;
+        0) return ;;
+        *) echo -e "${RED}Invalid selection${NC}"; sleep 1; menu_ec ;;
+    esac
+    save_config
+}
+
+# Menu 3: Consensus Client Selection
+menu_cc() {
+    print_header
+    echo -e "${BLUE}3. Consensus Client Selection${NC}"
+    if [ -n "$SELECTED_CC" ]; then
+        echo -e "${CYAN}Current: ${GREEN}${SELECTED_CC}${NC}"
+    else
+        echo -e "${CYAN}Current: ${YELLOW}not set${NC}"
+    fi
+    echo ""
+    echo "  1) Lighthouse"
+    echo "  2) Teku"
+    echo "  3) Prysm"
+    echo "  4) Lodestar"
+    echo "  5) None (Skip Consensus Client)"
+    echo "  0) Back (Keep Current Selection)"
+    echo ""
+    read -p "Select Consensus Client [1-4, 5, 0]: " choice
+    
+    case $choice in
+        1) SELECTED_CC="lighthouse" ;;
+        2) SELECTED_CC="teku" ;;
+        3) SELECTED_CC="prysm" ;;
+        4) SELECTED_CC="lodestar" ;;
+        5) SELECTED_CC="" ;;
+        0) return ;;
+        *) echo -e "${RED}Invalid selection${NC}"; sleep 1; menu_cc ;;
+    esac
+    save_config
+}
+
+# Menu 4: MEV Selection
+menu_mev() {
+    print_header
+    echo -e "${BLUE}4. MEV Selection${NC}"
+    if [ -n "$SELECTED_MEV" ] && [ "$SELECTED_MEV" != "none" ]; then
+        local mev_display=""
+        case "$SELECTED_MEV" in
+            mevboost) mev_display="MEV-Boost" ;;
+            commitboost) mev_display="Commit Boost" ;;
+            both) mev_display="Both (MEV-Boost + Commit Boost)" ;;
+            *) mev_display="$SELECTED_MEV" ;;
+        esac
+        echo -e "${CYAN}Current: ${GREEN}${mev_display}${NC}"
+    elif [ "$SELECTED_MEV" = "none" ]; then
+        echo -e "${CYAN}Current: ${YELLOW}None${NC}"
+    else
+        echo -e "${CYAN}Current: ${YELLOW}not set${NC}"
+    fi
+    echo ""
+    echo "  1) MEV-Boost"
+    echo "  2) Commit Boost"
+    echo "  3) Both"
+    echo "  4) None (Skip MEV)"
+    echo "  0) Back (Keep Current Selection)"
+    echo ""
+    read -p "Select MEV option [1-4, 0]: " choice
+    
+    case $choice in
+        1) SELECTED_MEV="mevboost" ;;
+        2) SELECTED_MEV="commitboost" ;;
+        3) SELECTED_MEV="both" ;;
+        4) SELECTED_MEV="none" ;;
+        0) return ;;
+        *) echo -e "${RED}Invalid selection${NC}"; sleep 1; menu_mev ;;
+    esac
+    save_config
+}
+
+# Menu 5: Validator Client / DVT Selection
+menu_vc_dvt() {
+    print_header
+    echo -e "${BLUE}5. Validator Client / DVT Selection${NC}"
+    if [ -n "$SELECTED_VC" ]; then
+        local vc_display=""
+        case "$SELECTED_VC" in
+            lighthouse) vc_display="Lighthouse VC" ;;
+            teku) vc_display="Teku VC" ;;
+            lodestar) vc_display="Lodestar VC" ;;
+            web3signer) vc_display="Web3Signer" ;;
+            *) vc_display="$SELECTED_VC" ;;
+        esac
+        echo -e "${CYAN}Current: ${GREEN}${vc_display}${NC}"
+    elif [ -n "$SELECTED_DVT" ]; then
+        local dvt_display=""
+        case "$SELECTED_DVT" in
+            obol) dvt_display="Obol DVT (Charon)" ;;
+            ssv) dvt_display="SSV Network DVT" ;;
+            *) dvt_display="$SELECTED_DVT" ;;
+        esac
+        echo -e "${CYAN}Current: ${GREEN}${dvt_display}${NC}"
+    else
+        echo -e "${CYAN}Current: ${YELLOW}None${NC}"
+    fi
+    echo ""
+    echo "  1) Lighthouse VC"
+    echo "  2) Teku VC"
+    echo "  3) Lodestar VC"
+    echo "  4) Obol DVT (Charon)"
+    echo "  5) SSV Network DVT"
+    echo "  6) Web3Signer (External Signer)"
+    echo "  7) None (Skip Validator)"
+    echo "  0) Back (Keep Current Selection)"
+    echo ""
+    read -p "Select Validator option [1-7, 0]: " choice
+    
+    case $choice in
+        1) SELECTED_VC="lighthouse"; SELECTED_DVT="" ;;
+        2) SELECTED_VC="teku"; SELECTED_DVT="" ;;
+        3) SELECTED_VC="lodestar"; SELECTED_DVT="" ;;
+        4) SELECTED_VC=""; SELECTED_DVT="obol" ;;
+        5) SELECTED_VC=""; SELECTED_DVT="ssv" ;;
+        6) SELECTED_VC="web3signer"; SELECTED_DVT="" ;;
+        7) SELECTED_VC=""; SELECTED_DVT="" ;;
+        0) return ;;
+        *) echo -e "${RED}Invalid selection${NC}"; sleep 1; menu_vc_dvt ;;
+    esac
+    save_config
+}
+
+# Generate Docker Compose file
+generate_compose() {
+    print_info "Generating Docker Compose configuration..."
+    
+    # Use the advanced generator script
+    if [ -f "$LIB_DIR/compose-generator.sh" ]; then
+        bash "$LIB_DIR/compose-generator.sh"
+    else
+        print_error "Compose generator not found"
+        return 1
+    fi
+}
+
+# Validate selection
+validate_selection() {
+    local errors=0
+    
+    if [ -z "$SELECTED_NETWORK" ]; then
+        echo -e "${RED}✗ Network not selected${NC}"
+        errors=$((errors + 1))
+    fi
+    
+    if [ -z "$SELECTED_EC" ]; then
+        echo -e "${RED}✗ Execution Client not selected${NC}"
+        errors=$((errors + 1))
+    fi
+    
+    if [ -z "$SELECTED_CC" ]; then
+        echo -e "${RED}✗ Consensus Client not selected${NC}"
+        errors=$((errors + 1))
+    fi
+    
+    return $errors
+}
+
+# Deploy
+deploy() {
+    print_header
+    print_selection
+    
+    if ! validate_selection; then
+        echo ""
+        print_error "Please complete all required selections"
+        sleep 2
+        return
+    fi
+    
+    # Check prerequisites
+    if ! check_docker; then
+        return 1
+    fi
+    
+    if ! check_docker_compose; then
+        return 1
+    fi
+    
+    # Ensure environment config exists
+    local env_file="$PROJECT_ROOT/.env"
+    if [ ! -f "$env_file" ]; then
+        print_warning "Environment config not found. Creating from template..."
+        if [ -f "$LIB_DIR/env-setup.sh" ]; then
+            bash "$LIB_DIR/env-setup.sh" "$SELECTED_NETWORK"
+            print_info "Please review: $env_file"
+            read -p "Press Enter to continue..."
+        else
+            print_error "Setup script not found. Please create $env_file manually"
+            return 1
+        fi
+    fi
+    
+    # Ensure JWT exists
+    local jwt_file="$PROJECT_ROOT/security/jwt/$SELECTED_NETWORK/jwt.hex"
+    if ! ensure_jwt "$jwt_file"; then
+        print_error "Failed to ensure JWT file exists"
+        return 1
+    fi
+    
+    echo ""
+    print_info "Generating Docker Compose configuration..."
+    if [ -f "$LIB_DIR/compose-generator.sh" ]; then
+        bash "$LIB_DIR/compose-generator.sh"
+    else
+        print_error "Compose generator not found"
+        return 1
+    fi
+    
+    echo ""
+    echo -e "${YELLOW}════════════════════════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}Deployment Summary${NC}"
+    echo -e "${YELLOW}════════════════════════════════════════════════════════════${NC}"
+    echo "  Network:     $SELECTED_NETWORK"
+    echo "  EC:          $SELECTED_EC"
+    echo "  CC:          $SELECTED_CC"
+    echo "  MEV:         ${SELECTED_MEV:-none}"
+    echo "  VC/DVT:      ${SELECTED_VC:-none} ${SELECTED_DVT:-}"
+    echo -e "${YELLOW}════════════════════════════════════════════════════════════${NC}"
+    echo ""
+    read -p "Deploy now? [y/N]: " confirm
+    
+    if [[ ! $confirm =~ ^[Yy]$ ]]; then
+        print_info "Deployment cancelled"
+        return
+    fi
+    
+    # Load environment variables
+    if [ -f "$env_file" ]; then
+        set -a
+        source "$env_file"
+        set +a
+        export ENV="$SELECTED_NETWORK"
+        export PROJECT_ROOT="$PROJECT_ROOT"
+        export NETWORK="$SELECTED_NETWORK"
+    fi
+    
+    echo ""
+    print_info "Deploying services..."
+    
+    # Ensure compose file exists
+    if [ ! -f "$TEMP_COMPOSE" ]; then
+        print_error "Generated compose file not found: $TEMP_COMPOSE"
+        return 1
+    fi
+    
+    if ! docker compose -f "$TEMP_COMPOSE" up -d; then
+        print_error "Deployment failed"
+        return 1
+    fi
+    
+    if docker compose -f "$TEMP_COMPOSE" ps --format json 2>/dev/null | grep -q '"State":"running"'; then
+        echo ""
+        print_success "Deployment complete!"
+        
+        # Save deployment state
+        local config_json=$(cat <<EOF
+{
+  "network": "$SELECTED_NETWORK",
+  "ec": "$SELECTED_EC",
+  "cc": "$SELECTED_CC",
+  "mev": "${SELECTED_MEV:-none}",
+  "vc": "${SELECTED_VC:-none}",
+  "dvt": "${SELECTED_DVT:-none}",
+  "timestamp": "$(date -Iseconds)"
+}
+EOF
+        )
+        save_state "$config_json"
+        log_deployment "DEPLOY" "$config_json"
+        
+        echo ""
+        echo "Useful commands:"
+        echo "  Status:  docker compose -f $TEMP_COMPOSE ps"
+        echo "  Logs:    docker compose -f $TEMP_COMPOSE logs -f"
+        echo "  Stop:    docker compose -f $TEMP_COMPOSE stop"
+        echo "  Remove:  docker compose -f $TEMP_COMPOSE down"
+        echo ""
+        echo "Use 'Restart / Manage Existing' from main menu for maintenance options"
+        echo ""
+    else
+        print_warning "Services deployed but may not be running yet. Check status with: docker compose -f $TEMP_COMPOSE ps"
+    fi
+}
+
+# Show current deployment status in main menu
+show_current_deployment() {
+    if [ -f "$PROJECT_ROOT/docker-compose.generated.yaml" ]; then
+        source "$LIB_DIR/state-manager.sh"
+        local current_config=$(detect_current_config)
+        if [ "$current_config" != "{}" ] && [ -n "$current_config" ]; then
+            echo ""
+            echo -e "${CYAN}Current Deployment:${NC}"
+            echo -e "${YELLOW}────────────────────────────────────────────────────────────${NC}"
+            format_deployment_info "$current_config"
+            echo ""
+            
+            # Check if services are running
+            if is_deployed; then
+                local running_count="0"
+                if command_exists jq; then
+                    running_count=$(docker compose -f "$PROJECT_ROOT/docker-compose.generated.yaml" ps --format json 2>/dev/null | jq '[.[] | select(.State=="running")] | length' 2>/dev/null || echo "0")
+                else
+                    # Fallback: count running services without jq
+                    running_count=$(docker compose -f "$PROJECT_ROOT/docker-compose.generated.yaml" ps --format "{{.State}}" 2>/dev/null | grep -c "running" || echo "0")
+                fi
+                echo -e "${GREEN}Status: Running ($running_count services)${NC}"
+            else
+                echo -e "${YELLOW}Status: Stopped${NC}"
+            fi
+            echo ""
+        fi
+    fi
+}
+
+# Main menu
+main_menu() {
+    while true; do
+        print_header
+        
+        # Show current deployment status if exists
+        show_current_deployment
+        
+        print_selection
+        echo -e "${BLUE}Main Menu${NC}"
+        echo ""
+        echo -e "${GREEN}Deployment:${NC}"
+        echo "  1) New Deployment (First Time)"
+        echo "  2) Restart / Manage Existing"
+        echo ""
+        echo -e "${CYAN}Configuration:${NC}"
+        # Format current selections for display
+        local network_display="${SELECTED_NETWORK:-not set}"
+        local ec_display="${SELECTED_EC:-not set}"
+        local cc_display="${SELECTED_CC:-not set}"
+        
+        # Format MEV display
+        local mev_display="not set"
+        if [ -n "$SELECTED_MEV" ]; then
+            case "$SELECTED_MEV" in
+                mevboost) mev_display="MEV-Boost" ;;
+                commitboost) mev_display="Commit Boost" ;;
+                both) mev_display="Both" ;;
+                none) mev_display="None" ;;
+                *) mev_display="$SELECTED_MEV" ;;
+            esac
+        fi
+        
+        # Format VC/DVT display
+        local vc_display="not set"
+        if [ -n "$SELECTED_VC" ]; then
+            case "$SELECTED_VC" in
+                lighthouse) vc_display="Lighthouse VC" ;;
+                teku) vc_display="Teku VC" ;;
+                lodestar) vc_display="Lodestar VC" ;;
+                web3signer) vc_display="Web3Signer" ;;
+                *) vc_display="$SELECTED_VC" ;;
+            esac
+        elif [ -n "$SELECTED_DVT" ]; then
+            case "$SELECTED_DVT" in
+                obol) vc_display="Obol DVT" ;;
+                ssv) vc_display="SSV DVT" ;;
+                *) vc_display="$SELECTED_DVT" ;;
+            esac
+        fi
+        
+        echo "  3) Select Network          ${GREEN}[${network_display}]${NC}"
+        echo "  4) Select Execution Client ${GREEN}[${ec_display}]${NC}"
+        echo "  5) Select Consensus Client ${GREEN}[${cc_display}]${NC}"
+        echo "  6) Select MEV Option       ${GREEN}[${mev_display}]${NC}"
+        echo "  7) Select Validator Client / DVT ${GREEN}[${vc_display}]${NC}"
+        echo ""
+        echo -e "${YELLOW}Tools:${NC}"
+        echo "  8) View Generated Compose"
+        echo "  9) Reset Configuration"
+        echo ""
+        echo "  0) Exit"
+        echo ""
+        read -p "Select option [0-9]: " choice
+        
+        case $choice in
+            1) 
+                # New deployment flow
+                if [ -z "$SELECTED_NETWORK" ]; then menu_network; fi
+                if [ -z "$SELECTED_EC" ]; then menu_ec; fi
+                if [ -z "$SELECTED_CC" ]; then menu_cc; fi
+                if [ -z "$SELECTED_MEV" ]; then menu_mev; fi
+                if [ -z "$SELECTED_VC" ] && [ -z "$SELECTED_DVT" ]; then menu_vc_dvt; fi
+                deploy
+                ;;
+            2) 
+                # Maintenance menu
+                if [ -f "$PROJECT_ROOT/docker-compose.generated.yaml" ]; then
+                    bash "$LIB_DIR/maintenance.sh"
+                else
+                    print_warning "No existing deployment found. Please use 'New Deployment' first."
+                    sleep 2
+                fi
+                ;;
+            3) menu_network ;;
+            4) menu_ec ;;
+            5) menu_cc ;;
+            6) menu_mev ;;
+            7) menu_vc_dvt ;;
+            8) 
+                if [ -f "$TEMP_COMPOSE" ]; then 
+                    less "$TEMP_COMPOSE"
+                elif [ -f "$PROJECT_ROOT/docker-compose.generated.yaml" ]; then
+                    less "$PROJECT_ROOT/docker-compose.generated.yaml"
+                else
+                    print_warning "No compose file found"
+                    sleep 1
+                fi
+                ;;
+            9) 
+                SELECTED_EC=""; SELECTED_CC=""; SELECTED_MEV=""; SELECTED_VC=""; SELECTED_DVT=""; 
+                save_config
+                print_success "Configuration reset"
+                sleep 1
+                ;;
+            0) echo "Goodbye!"; exit 0 ;;
+            *) echo -e "${RED}Invalid selection${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+# Initialize
+load_config
+main_menu
+

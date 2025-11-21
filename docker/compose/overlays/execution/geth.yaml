@@ -1,0 +1,84 @@
+version: "3.8"
+
+services:
+  #             _   _
+  #   __ _  ___| |_| |__
+  #  / _` |/ _ \ __| '_ \
+  # | (_| |  __/ |_| | | |
+  #  \__, |\___|\__|_| |_|
+  #  |___/
+  geth:
+    image: ethereum/client-go:${GETH_VERSION}
+    container_name: geth-${NETWORK}
+    ports:
+      - "${EC_PORT_P2P}:30303/tcp"
+      - "${EC_PORT_P2P}:30303/udp"
+      - "${EC_PORT_HTTP}:8545"
+      - "${EC_PORT_WS}:8546"
+      - "${EC_PORT_ENGINE}:8551"
+      - "${EC_PORT_METRIC}:6060"
+    command: |
+      --${NETWORK}
+      --http
+      --http.addr=0.0.0.0
+      --http.port=8545
+      --http.vhosts="*"
+      --http.api="db,eth,net,engine,rpc,web3"
+      --ws
+      --ws.addr=0.0.0.0
+      --ws.port=8546
+      --ws.origins="*"
+      --ws.api="eth,net,web3"
+      --authrpc.jwtsecret="/jwt/jwt.hex"
+      --authrpc.addr=0.0.0.0
+      --authrpc.port=8551
+      --authrpc.vhosts="*"
+      --metrics
+      --metrics.addr=0.0.0.0
+      --metrics.port=6060
+      --cache=${GETH_CACHE:-16384}
+      --maxpeers=${GETH_MAX_PEERS:-100}
+      --maxpendpeers=${GETH_MAX_PEND_PEERS:-50}
+      --txpool.globalslots=${GETH_TXPOOL_GLOBALSLOTS:-20000}
+      --txpool.globalqueue=${GETH_TXPOOL_GLOBALQUEUE:-5000}
+      --txpool.accountslots=${GETH_TXPOOL_ACCOUNTSLOTS:-16}
+      --txpool.accountqueue=${GETH_TXPOOL_ACCOUNTQUEUE:-16}
+      --txpool.lifetime=${GETH_TXPOOL_LIFETIME:-3h}
+      --txpool.pricebump=${GETH_TXPOOL_PRICEBUMP:-10}
+      --txpool.nolocals
+      --syncmode=snap
+      --bloomfilter.size=${GETH_BLOOM_SIZE:-2048}
+      --db.engine=pebble
+      --db.pebble.cache=${GETH_PEBBLE_CACHE:-2048}
+      --db.pebble.memory=${GETH_PEBBLE_MEMORY:-512}
+      --db.pebble.maxopenfiles=${GETH_PEBBLE_MAXOPENFILES:-1000}
+      --db.pebble.write-buffer-size=${GETH_PEBBLE_WRITE_BUFFER_SIZE:-64}
+      --db.pebble.target-file-size=${GETH_PEBBLE_TARGET_FILE_SIZE:-64}
+    networks:
+      - ethnode
+    volumes:
+      - chain-data:/root/.ethereum
+      - ${PROJECT_ROOT}/security/jwt/${ENV}/jwt.hex:/jwt/jwt.hex:ro
+      - logs:/root/logs
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:6060/debug/metrics/prometheus"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    labels:
+      - "com.ethereum.client=geth"
+      - "com.ethereum.network=${NETWORK}"
+      - "com.ethereum.role=execution"
+

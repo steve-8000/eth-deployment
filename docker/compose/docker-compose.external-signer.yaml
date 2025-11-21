@@ -1,0 +1,297 @@
+version: "1.0"
+
+services:
+  #  _ _       _     _   _
+  # | (_) __ _| |__ | |_| |__   ___  _   _ ___  ___
+  # | | |/ _` | '_ \| __| '_ \ / _ \| | | / __|/ _ \
+  # | | | (_| | | | | |_| | | | (_) | |_| \__ \  __/
+  # |_|_|\__, |_| |_|\__|_| |_|\___/ \__,_|___/\___|
+  #      |___/
+  lighthouse-vc:
+    image: sigp/lighthouse:${LIGHTHOUSE_VERSION}
+    ports:
+      - ${SIGNER_VC_PORT_HTTP}:5062 # Keymanager API
+      - ${SIGNER_VC_PORT_METRICS}:5064 # Metrics
+    command: |
+      lighthouse vc
+      --network=${NETWORK}
+      --beacon-nodes=${VC_BEACON_NODE_ADDRESS}
+      --suggested-fee-recipient=${VC_SUGGESTED_FEE_RECIPIENT}
+      --graffiti=${VC_DEFAULT_GRAFFITI}
+      --http
+      --http-address=0.0.0.0
+      --http-port=5062
+      --metrics
+      --metrics-address=0.0.0.0
+      --metrics-port=5064
+      --init-slashing-protection
+      --enable-doppelganger-protection
+      --validators-external-signer-url=http://web3signer:${WEB3SIGNER_PORT_HTTP}
+    environment:
+      VC_BEACON_NODE_ADDRESS: ${VC_BEACON_NODE_ADDRESS}
+      NETWORK: ${NETWORK}
+      VC_SUGGESTED_FEE_RECIPIENT: ${VC_SUGGESTED_FEE_RECIPIENT}
+      VC_DEFAULT_GRAFFITI: ${VC_DEFAULT_GRAFFITI}
+    networks: [ ethnode ]
+    restart: unless-stopped
+    volumes:
+      - ./data/lighthouse-vc:/root/.lighthouse # if you want to store validator yaml
+    depends_on:
+      web3signer:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5064/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  #  _       _          
+  # | |     | |         
+  # | |_ ___| | ___   _ 
+  # | __/ _ \ |/ / | | |
+  # | ||  __/   <| |_| |
+  #  \__\___|_|\_\\__,_|
+  teku-vc:
+    image: consensys/teku:${TEKU_VERSION}
+    networks: [ ethnode ]
+    user: root
+    ports:
+      - ${SIGNER_VC_PORT_HTTP}:5062 # Keymanager API
+      - ${SIGNER_VC_PORT_METRICS}:5064 # Metrics
+    command: |
+      validator-client
+      --network=${NETWORK}
+      --beacon-node-api-endpoint=${VC_BEACON_NODE_ADDRESS}
+      --validators-external-signer-url=http://web3signer:${WEB3SIGNER_PORT_HTTP}
+      --validators-external-signer-public-keys-source=external-signer
+      --validators-external-signer-timeout=30
+      --validators-external-signer-keystore-lookup-enabled=true
+      --suggested-fee-recipient=${VC_SUGGESTED_FEE_RECIPIENT}
+      --graffiti=${VC_DEFAULT_GRAFFITI}
+      --metrics-enabled=true
+      --metrics-interface=0.0.0.0
+      --metrics-port=5064
+      --rest-api-enabled=true
+      --rest-api-interface=0.0.0.0
+      --rest-api-port=5062
+      --rest-api-host-allowlist=*
+      --validators-proposer-default-fee-recipient=${VC_SUGGESTED_FEE_RECIPIENT}
+      --validators-proposer-config=http://web3signer:${WEB3SIGNER_PORT_HTTP}
+    volumes:
+      - ./data/teku-vc/:/var/lib/teku
+      - .key/teku:/opt/teku/ssl
+    restart: unless-stopped
+    environment:
+      VC_BEACON_NODE_ADDRESS: ${VC_BEACON_NODE_ADDRESS}
+      NETWORK: ${NETWORK}
+      VC_SUGGESTED_FEE_RECIPIENT: ${VC_SUGGESTED_FEE_RECIPIENT}
+      EXTERNAL_SIGNER_URL: http://web3signer:${WEB3SIGNER_PORT_HTTP}
+      VC_DEFAULT_GRAFFITI: ${VC_DEFAULT_GRAFFITI}
+    depends_on:
+      web3signer:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5064/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  #  _ __  _ __ _   _ ___ _ __ ___  
+  # | '_ \| '__| | | / __| '_ ` _ \ 
+  # | |_) | |  | |_| \__ \ | | | | |
+  # | .__/|_|   \__, |___/_| |_| |_|
+  # |_|         |___/       
+  prysm-vc:
+    image: gcr.io/prysmaticlabs/prysm/validator:${PRYSM_VERSION}
+    ports:
+      - ${VC_PORT_HTTP}:5062 # RPC
+      - ${VC_PORT_METRICS}:5064 # Metrics
+    command: |
+      --accept-terms-of-use
+      --${NETWORK} 
+      --enable-beacon-rest-api
+      --beacon-rest-api-provider=${VC_BEACON_NODE_ADDRESS}
+      --suggested-fee-recipient=${VC_SUGGESTED_FEE_RECIPIENT}
+      --monitoring-host=0.0.0.0
+      --monitoring-port=5064
+      --graffiti=${VC_DEFAULT_GRAFFITI}
+      --enable-doppelganger
+      --web
+      --http-host=0.0.0.0
+      --http-port=5062
+      --validators-external-signer-url=http://web3signer:${WEB3SIGNER_PORT_HTTP}
+      --enable-builder=${PRYSM_VC_ENABLE_BUILDER}
+    networks: [ ethnode ]
+    volumes:
+      - ./data/prysm-vc:/root/.eth2validators
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5064/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    depends_on:
+      web3signer:
+        condition: service_healthy
+
+  #               _    ____      _                       
+  #              | |  |___ \    (_)                      
+  # __      _____| |__  __) |___ _  __ _ _ __   ___ _ __ 
+  # \ \ /\ / / _ \ '_ \|__ </ __| |/ _` | '_ \ / _ \ '__|
+  #  \ V  V /  __/ |_) |__) \__ \ | (_| | | | |  __/ |   
+  #   \_/\_/ \___|_.__/____/|___/_|\__, |_| |_|\___|_|   
+  #                                 __/ |                
+  #                                |___/                 
+  # Need to be deployed after lighthouse vc - use depends_on: [vc]
+  init:
+    image: python:3.10.13-slim-bullseye
+    command: sh -c "pip install requests && python3 /opt/web3signer/run.py"
+    networks: [ ethnode ]
+    environment:
+      WEB3SIGNER_KEYS_DIRECTORY: /var/keys
+      WEB3SIGNER_PORT_HTTP: ${WEB3SIGNER_PORT_HTTP}
+      VC_ENDPOINT: ${VC_ENDPOINT}
+    volumes:
+      - ./scripts/web3signer/run.py:/opt/web3signer/run.py
+      - .key/web3signer_keys:/var/keys
+
+  copy_migrations:
+    image: consensys/web3signer:${WEB3SIGNER_VERSION}
+    user: root
+    volumes:
+      - ./data/migrations:/flyway/sql
+    networks: [ ethnode ]
+    entrypoint: ["sh", "-c", "rm /flyway/sql/*.sql; cp /opt/web3signer/migrations/postgresql/*.sql /flyway/sql/; echo 'sql files copied!'"]
+
+  init_migrations:
+    image: flyway/flyway:9.17
+    command: -url=jdbc:postgresql://web3signer_db:5432/${POSTGRES_DB} -user=${POSTGRES_USER} -password=${POSTGRES_PASSWORD} -connectRetries=60 migrate
+    volumes:
+      - ./data/migrations:/flyway/sql:ro
+    networks: [ ethnode ]
+    depends_on:
+      web3signer_db:
+        condition: service_started
+      copy_migrations:
+        condition: service_completed_successfully
+
+  web3signer_db:
+    image: postgres:15.5
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=C"
+    volumes:
+      - ./data/web3signer-db:/var/lib/postgresql/data
+    ports:
+      - ${WEB3SIGNER_PORT_DB}:5432
+    networks: [ ethnode ]
+    depends_on:
+      copy_migrations:
+        condition: service_completed_successfully
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=512MB"
+      - "-c"
+      - "effective_cache_size=1536MB"
+      - "-c"
+      - "maintenance_work_mem=128MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=4MB"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "max_connections=100"
+
+  web3signer:
+    image: consensys/web3signer:${WEB3SIGNER_VERSION}
+    ports:
+      - ${WEB3SIGNER_PORT_HTTP}:${WEB3SIGNER_PORT_HTTP}
+      - ${WEB3SIGNER_PORT_METRICS}:9001
+    command: |
+      --http-host-allowlist=*
+      --http-listen-port=${WEB3SIGNER_PORT_HTTP}
+      --metrics-enabled=true
+      --metrics-host-allowlist=*
+      eth2
+      --network=${NETWORK}
+      --keystores-path=/var/keys
+      --keystores-passwords-path=/var/keys
+      --key-manager-api-enabled=true
+      --slashing-protection-enabled=true
+      --slashing-protection-db-url="${WEB3SIGNER_DB_URL}"
+      --slashing-protection-db-username=${WEB3SIGNER_DB_USER}
+      --slashing-protection-db-password=${WEB3SIGNER_DB_PASSWORD}
+      --slashing-protection-pruning-enabled=true
+      --slashing-protection-pruning-epochs-to-keep=${WEB3SIGNER_PRUNING_EPOCHS}
+      --slashing-protection-pruning-at-boot-enabled=true
+    networks: [ ethnode ]
+    volumes:
+      - .key/web3signer_keys:/var/keys
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9001/metrics"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      web3signer_db:
+        condition: service_healthy
+
+networks:
+  ethnode:

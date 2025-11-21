@@ -1,0 +1,54 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Generated files
+docker-compose.generated.yaml
+*.generated.yaml
+
+# Deployment state
+.deploy/
+config/.deployment
+
+# Security files
+security/jwt/
+security/keys/
+
+# Data directories
+data/
+logs/
+
+# Backup files
+*.bak
+*.backup
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# Node modules (if any)
+node_modules/
+

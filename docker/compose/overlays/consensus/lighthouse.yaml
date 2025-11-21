@@ -1,0 +1,84 @@
+version: "3.8"
+
+services:
+  #  _ _       _     _   _
+  # | (_) __ _| |__ | |_| |__   ___  _   _ ___  ___
+  # | | |/ _` | '_ \| __| '_ \ / _ \| | | / __|/ _ \
+  # | | | (_| | | | | |_| | | | (_) | |_| \__ \  __/
+  # |_|_|\__, |_| |_|\__|_| |_|\___/ \__,_|___/\___|
+  #      |___/
+  lighthouse:
+    image: sigp/lighthouse:${LIGHTHOUSE_VERSION}
+    container_name: lighthouse-${NETWORK}
+    ports:
+      - "${CC_PORT_P2P}:9000/tcp"
+      - "${CC_PORT_P2P}:9000/udp"
+      - "${CC_PORT_QUIC}:9001/udp"
+      - "${CC_PORT_HTTP}:5052"
+      - "${CC_PORT_METRICS}:5054"
+    command: |
+      lighthouse bn
+      --network=${NETWORK}
+      --checkpoint-sync-url=${CC_CHECKPOINT_SYNC_URL}
+      --execution-endpoint=${CC_EXECUTION_ENDPOINT}
+      --execution-jwt=/jwt/jwt.hex
+      --builder=${CC_MEV_BOOST_ADDRESS}
+      --datadir=/data/beacon
+      --debug-level=${LIGHTHOUSE_LOG_LEVEL:-info}
+      --http
+      --http-address=0.0.0.0
+      --http-port=5052
+      --http-allow-origin="*"
+      --metrics
+      --metrics-address=0.0.0.0
+      --metrics-port=5054
+      --metrics-allow-origin="*"
+      --suggested-fee-recipient=${CC_SUGGESTED_FEE_RECIPIENT}
+      --target-peers=${LIGHTHOUSE_TARGET_PEERS:-150}
+      --listen-address=0.0.0.0
+      --discovery-port=${CC_PORT_P2P}
+      --port=${CC_PORT_P2P}
+      --quic-port=${CC_PORT_QUIC}
+      --beacon-processor-work-queue-len=${LIGHTHOUSE_WORK_QUEUE_LEN:-262144}
+      --validator-monitor-auto
+      --slots-per-restore-point=${LIGHTHOUSE_SLOTS_PER_RESTORE_POINT:-8192}
+      --enable-private-discovery
+      --max-skip-slots=${LIGHTHOUSE_MAX_SKIP_SLOTS:-1000}
+      --import-all-attestations
+      --reconstruct-historic-states
+      --freezer-dir=/data/beacon/freezer
+      --http-timeout=${LIGHTHOUSE_HTTP_TIMEOUT:-120}
+      --execution-timeout-multiplier=${LIGHTHOUSE_EXECUTION_TIMEOUT_MULTIPLIER:-2}
+      --execution-block-timeout=${LIGHTHOUSE_EXECUTION_BLOCK_TIMEOUT:-10}
+      --disable-peer-scoring
+      --enable-backfill-rate-limiting
+      --backfill-batch-size=${LIGHTHOUSE_BACKFILL_BATCH_SIZE:-64}
+      --backfill-batch-wait=${LIGHTHOUSE_BACKFILL_BATCH_WAIT:-1}
+    networks:
+      - ethnode
+    volumes:
+      - chain-data:/data/beacon
+      - ${PROJECT_ROOT}/security/jwt/${ENV}/jwt.hex:/jwt/jwt.hex:ro
+      - logs:/data/logs
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5052/eth/v1/node/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    labels:
+      - "com.ethereum.client=lighthouse"
+      - "com.ethereum.network=${NETWORK}"
+      - "com.ethereum.role=consensus"
+

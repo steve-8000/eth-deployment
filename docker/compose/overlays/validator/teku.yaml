@@ -1,0 +1,52 @@
+version: "3.8"
+
+services:
+  #  _       _          
+  # | |     | |         
+  # | |_ ___| | ___   _ 
+  # | __/ _ \ |/ / | | |
+  # | ||  __/   <| |_| |
+  #  \__\___|_|\_\\__,_|
+  teku-vc:
+    image: consensys/teku:${TEKU_VERSION}
+    container_name: teku-vc-${NETWORK}
+    ports:
+      - "${VC_PORT_HTTP}:5062"
+      - "${VC_PORT_METRICS}:5064"
+    command: |
+      validator-client
+      --network=${NETWORK}
+      --beacon-node-api-endpoint=${VC_BEACON_NODE_ADDRESS}
+      --validator-keys=/keys/validator_keys:/keys/validator_keys
+      --validators-proposer-default-fee-recipient=${VC_SUGGESTED_FEE_RECIPIENT}
+      --validators-graffiti="${VC_DEFAULT_GRAFFITI}"
+      --metrics-enabled=true
+      --metrics-port=5064
+      --metrics-host-allowlist=*
+      --validators-builder-registration-default-enabled=true
+      --log-destination=CONSOLE
+      --log-include-validator-duties-enabled=true
+    networks:
+      - ethnode
+    volumes:
+      - keys:/keys:ro
+      - chain-data:/data/teku-vc
+      - logs:/data/logs
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5064/metrics"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "com.ethereum.client=teku"
+      - "com.ethereum.network=${NETWORK}"
+      - "com.ethereum.role=validator"
+

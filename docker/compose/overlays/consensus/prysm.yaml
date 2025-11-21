@@ -1,0 +1,76 @@
+version: "3.8"
+
+services:
+  #  _ __  _ __ _   _ ___ _ __ ___  
+  # | '_ \| '__| | | / __| '_ ` _ \ 
+  # | |_) | |  | |_| \__ \ | | | | |
+  # | .__/|_|   \__, |___/_| |_| |_|
+  # |_|         |___/               
+  prysm:
+    image: gcr.io/prysmaticlabs/prysm/beacon-chain:${PRYSM_VERSION}
+    container_name: prysm-${NETWORK}
+    ports:
+      - "${CC_PORT_P2P}:9000/tcp"
+      - "${CC_PORT_P2P}:9000/udp"
+      - "${CC_PORT_QUIC}:9001/udp"
+      - "${CC_PORT_P2P_DISCOVERY}:12000/udp"
+      - "${CC_PORT_HTTP}:5052"
+      - "${CC_PORT_METRICS}:8080"
+    command: |
+      --checkpoint-sync-url=${CC_CHECKPOINT_SYNC_URL}
+      --execution-endpoint=${CC_EXECUTION_ENDPOINT}
+      --genesis-state=/genesis/genesis.ssz
+      --datadir=/data/prysm
+      --jwt-secret=/jwt/jwt.hex
+      --http-cors-domain=*
+      --http-host=0.0.0.0
+      --http-port=5052
+      --monitoring-host=0.0.0.0
+      --monitoring-port=8080
+      --p2p-tcp-port=9000
+      --p2p-quic-port=${CC_PORT_QUIC}
+      --p2p-udp-port=12000
+      --p2p-max-peers=${PRYSM_MAX_PEERS:-150}
+      --p2p-advertise-ip=${PRYSM_ADVERTISE_IP:-}
+      --p2p-advertise-port=${CC_PORT_P2P}
+      --peer=${CC_DIRECT_PEERS:-}
+      --http-mev-relay=${CC_MEV_BOOST_ADDRESS}
+      --${NETWORK}
+      --suggested-fee-recipient=${CC_SUGGESTED_FEE_RECIPIENT}
+      --enable-builder=${PRYSM_ENABLE_BUILDER:-true}
+      --grpc-max-msg-size=${PRYSM_GRPC_MAX_MSG_SIZE:-104857600}
+      --slots-per-archive-point=${PRYSM_SLOTS_PER_ARCHIVE_POINT:-8192}
+      --enable-historical-state-representation=${PRYSM_ENABLE_HISTORICAL_STATE:-true}
+      --disable-peer-scoring
+      --enable-backfill-rate-limiting
+      --backfill-batch-size=${PRYSM_BACKFILL_BATCH_SIZE:-64}
+      --accept-terms-of-use
+    networks:
+      - ethnode
+    volumes:
+      - chain-data:/data/prysm
+      - ${PROJECT_ROOT}/security/jwt/${ENV}/jwt.hex:/jwt/jwt.hex:ro
+      - ${PROJECT_ROOT}/genesis.ssz:/genesis/genesis.ssz:ro
+      - logs:/data/logs
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5052/healthz"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    labels:
+      - "com.ethereum.client=prysm"
+      - "com.ethereum.network=${NETWORK}"
+      - "com.ethereum.role=consensus"
+

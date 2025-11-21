@@ -1,0 +1,40 @@
+services:
+  #      _                     _
+  #  _ __ ___   _____   __    | |__   ___   ___  ___| |_
+  #  | '_ ` _ \ / _ \ \ / /____| '_ \ / _ \ / _ \/ __| __|
+  #  | | | | | |  __/\ V /_____| |_) | (_) | (_) \__ \ |_
+  #  |_| |_| |_|\___| \_/      |_.__/ \___/ \___/|___/\__|
+  mev-boost:
+    image: flashbots/mev-boost:${MEVBOOST_VERSION}
+    ports:
+      - "18550:18550"
+    command: |
+      -${NETWORK}
+      -loglevel=${MEVBOOST_LOG_LEVEL}
+      -addr=0.0.0.0:18550
+      -relay-check
+      -request-timeout-getheader=${MEVBOOST_GETHEADER_TIMEOUT}
+      -request-timeout-getpayload=${MEVBOOST_GETPAYLOAD_TIMEOUT}
+      -request-timeout-regval=${MEVBOOST_REGVAL_TIMEOUT}
+      -relays=${MEVBOOST_RELAYS}
+    restart: unless-stopped
+    networks: [ ethnode ]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:18550/healthz"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  ethnode:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

@@ -1,0 +1,10 @@
+privKey: ./config/encrypted_private_key.json
+privKeyPassword: ./config/password
+operatorID: <YOUR_OPERATOR_ID>
+port: 3030
+logLevel: info
+logFormat: json
+logLevelFormat: capitalColor
+logFilePath: ./data/debug.log
+outputPath: ./data/output
+ethEndpointURL: http://execution-client:8545

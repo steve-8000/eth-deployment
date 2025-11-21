@@ -1,0 +1,49 @@
+groups:
+  - name: ethereum_node_alerts
+    interval: 30s
+    rules:
+      - alert: NodeDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ethereum node is down"
+          description: "{{ $labels.instance }} has been down for more than 5 minutes."
+
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is above 90% on {{ $labels.instance }}"
+
+      - alert: HighDiskUsage
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space"
+          description: "Disk space is below 10% on {{ $labels.instance }}"
+
+      - alert: SyncDelay
+        expr: (eth_sync_current_block - eth_sync_known_block) > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sync delay detected"
+          description: "Execution client is {{ $value }} blocks behind"
+
+      - alert: LowPeerCount
+        expr: p2p_peers < 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low peer count"
+          description: "Peer count is {{ $value }} on {{ $labels.instance }}"
+

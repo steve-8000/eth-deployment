@@ -1,0 +1,31 @@
+version: "1.0"
+
+services:
+  #      _        _                 _          
+  #     | |      | |               (_)         
+  #  ___| |_ __ _| | _______      ___ ___  ___ 
+  # / __| __/ _` | |/ / _ \ \ /\ / / / __|/ _ \
+  # \__ \ || (_| |   <  __/\ V  V /| \__ \  __/
+  # |___/\__\__,_|_|\_\___| \_/\_/ |_|___/\___|
+  stakewise-operator:
+    image: europe-west4-docker.pkg.dev/stakewiselabs/public/v3-operator:${STAKEWISE_VERSION}
+    command: ["src/main.py", "start"]
+    networks: [ ethnode ]
+    user: 1000:1000
+    ports:
+      - ${STAKEWISE_PORT_METRICS}:9100
+    volumes:
+      - .key/stakewise:/data
+    environment:
+      NETWORK: ${NETWORK}
+      DATA_DIR: /data
+      VAULT: ${STAKEWISE_VAULT_ADDRESS}
+      EXECUTION_ENDPOINTS: ${STAKEWISE_EXECUTION_NODE_ENDPOINTS}
+      CONSENSUS_ENDPOINTS: ${STAKEWISE_BEACON_NODE_ENDPOINTS}
+      ENABLE_METRICS: true
+      METRICS_HOST: 0.0.0.0
+      METRICS_PORT: 9100
+    restart: unless-stopped
+
+networks:
+  ethnode:

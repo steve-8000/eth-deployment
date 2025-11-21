@@ -1,0 +1,200 @@
+version: "1.0"
+
+services:
+  #       _
+  #   ___| |__   __ _ _ __ ___  _ __
+  #  / __| '_ \ / _` | '__/ _ \| '_ \
+  # | (__| | | | (_| | | | (_) | | | |
+  #  \___|_| |_|\__,_|_|  \___/|_| |_|
+  charon:
+    image: obolnetwork/charon:${CHARON_VERSION}
+    ports:
+      - ${CHARON_PORT_P2P_TCP}:3610/tcp # P2P TCP libp2p
+      - ${CHARON_PORT_MONITORING}:3620/tcp # Monitoring
+    environment:
+      - CHARON_BEACON_NODE_ENDPOINTS=${CHARON_BEACON_NODE_ENDPOINTS}
+      - CHARON_BEACON_NODE_TIMEOUT=${CHARON_BEACON_NODE_TIMEOUT}
+      - CHARON_BEACON_NODE_SUBMIT_TIMEOUT=${CHARON_BEACON_NODE_SUBMIT_TIMEOUT}
+      - CHARON_FALLBACK_BEACON_NODE_ENDPOINTS=${CHARON_FALLBACK_BEACON_NODE_ENDPOINTS}
+      - CHARON_LOG_LEVEL=${CHARON_LOG_LEVEL}
+      - CHARON_LOG_FORMAT=${CHARON_LOG_FORMAT}
+      - CHARON_VALIDATOR_API_ADDRESS=0.0.0.0:3600
+      - CHARON_P2P_TCP_ADDRESS=0.0.0.0:3610
+      - CHARON_MONITORING_ADDRESS=0.0.0.0:3620
+      - CHARON_P2P_RELAYS=${CHARON_P2P_RELAYS}
+      - CHARON_P2P_EXTERNAL_HOSTNAME=${CHARON_P2P_EXTERNAL_HOSTNAME}
+      - CHARON_BUILDER_API=${CHARON_BUILDER_API_ENABLED}
+      - CHARON_FEATURE_SET_ENABLE=${CHARON_FEATURE_SET_ENABLE}
+      - CHARON_LOKI_ADDRESSES=${CHARON_LOKI_ADDRESSES}
+      - CHARON_LOKI_SERVICE=${CHARON_LOKI_SERVICE}
+      - CHARON_NICKNAME=${CHARON_NICKNAME}
+    networks: [ethnode]
+    volumes:
+      - .charon:/opt/charon/.charon
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3620/readyz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  #  _ _       _     _   _
+  # | (_) __ _| |__ | |_| |__   ___  _   _ ___  ___
+  # | | |/ _` | '_ \| __| '_ \ / _ \| | | / __|/ _ \
+  # | | | (_| | | | | |_| | | | (_) | |_| \__ \  __/
+  # |_|_|\__, |_| |_|\__|_| |_|\___/ \__,_|___/\___|
+  #      |___/
+  lighthouse:
+    image: sigp/lighthouse:${LIGHTHOUSE_VERSION}
+    ports:
+      - ${VC_PORT_HTTP}:5062 # Metrics
+      - ${VC_PORT_METRICS}:5064 # Metrics
+    command: |
+      lighthouse vc
+      --network=${NETWORK}
+      --beacon-nodes=${VC_BEACON_NODE_ADDRESS}
+      --suggested-fee-recipient=${VC_SUGGESTED_FEE_RECIPIENT}
+      --graffiti=${VC_DEFAULT_GRAFFITI}
+      --http
+      --http-address=0.0.0.0
+      --http-port=5062
+      --metrics
+      --metrics-address=0.0.0.0
+      --metrics-port=5064
+      --init-slashing-protection
+      --enable-doppelganger-protection
+      --distributed-validator-http-endpoint=http://charon:3600
+    environment:
+      VC_BEACON_NODE_ADDRESS: ${VC_BEACON_NODE_ADDRESS}
+      NETWORK: ${NETWORK}
+      VC_SUGGESTED_FEE_RECIPIENT: ${VC_SUGGESTED_FEE_RECIPIENT}
+      VC_DEFAULT_GRAFFITI: ${VC_DEFAULT_GRAFFITI}
+    networks: [ethnode]
+    volumes:
+      - .charon/validator_keys:/opt/lighthouse/keys
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5064/metrics"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  #  _           _           _
+  # | | ___   __| | ___  ___| |_ __ _ _ __
+  # | |/ _ \ / _` |/ _ \/ __| __/ _` | '__|
+  # | | (_) | (_| |  __/\__ \ || (_| | |
+  # |_|\___/ \__,_|\___||___/\__\__,_|_|
+  lodestar:
+    image: chainsafe/lodestar:${LODESTAR_VERSION}
+    ports:
+      - ${VC_PORT_HTTP}:5062 # Metrics
+      - ${VC_PORT_METRICS}:5064 # Metrics
+    command: |
+      lodestar validator
+      --network=${NETWORK}
+      --beacon-nodes=${VC_BEACON_NODE_ADDRESS}
+      --suggested-fee-recipient=${VC_SUGGESTED_FEE_RECIPIENT}
+      --graffiti=${VC_DEFAULT_GRAFFITI}
+      --rest
+      --rest.address=0.0.0.0
+      --rest.port=5062
+      --metrics
+      --metrics.address=0.0.0.0
+      --metrics.port=5064
+      --initSlashingProtection
+      --enableDoppelgangerProtection
+      --distributedValidatorHttpEndpoint=http://charon:3600
+    environment:
+      VC_BEACON_NODE_ADDRESS: ${VC_BEACON_NODE_ADDRESS}
+      NETWORK: ${NETWORK}
+      VC_SUGGESTED_FEE_RECIPIENT: ${VC_SUGGESTED_FEE_RECIPIENT}
+      VC_DEFAULT_GRAFFITI: ${VC_DEFAULT_GRAFFITI}
+      BUILDER_API_ENABLED: ${CHARON_BUILDER_API_ENABLED}
+    networks: [ethnode]
+    volumes:
+      - .charon/validator_keys:/home/charon/validator_keys
+      - ./data/lodestar:/opt/data
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5064/metrics"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  #  _____  _____  _   _
+  # /  ___|/  ___|| | | |
+  # \ `--. \ `--. | | | |
+  #  `--. \ `--. \| | | |
+  # /\__/ //\__/ /\ \_/ /
+  # \____/ \____/  \___/
+  ssv-node:
+    image: ssvlabs/ssv-node:${SSV_VERSION}
+    command: make BUILD_PATH=/go/bin/ssvnode start-node
+    ports:
+      - ${SSV_PORT_P2P_TCP}:${SSV_PORT_P2P_TCP}/tcp
+      - ${SSV_PORT_P2P_UDP}:${SSV_PORT_P2P_UDP}/udp
+      - ${SSV_PORT_METRICS}:5064/tcp # Metrics
+    environment:
+      CONFIG_PATH: /config.yaml
+    networks: [ethnode]
+    volumes:
+      - ${PROJECT_ROOT}/config/clients/ssv/config.yaml:/config.yaml
+      - ${PROJECT_ROOT}/config/clients/ssv/password:/password
+      - ${PROJECT_ROOT}/config/clients/ssv/encrypted_private_key.json:/encrypted_private_key.json
+      - ./data/ssv:/data
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5064/metrics"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  ssv-dkg:
+    image: ssvlabs/ssv-dkg:${SSV_DKG_VERSION}
+    command: start-operator --configPath ./config/config.yaml
+    ports:
+      - ${SSV_PORT_DKG}:3030
+    networks: [ethnode]
+    volumes:
+      - ${PROJECT_ROOT}/config/clients/ssv/dkg-config.yaml:/ssv-dkg/config/config.yaml
+      - ${PROJECT_ROOT}/config/clients/ssv/password:/ssv-dkg/config/password
+      - ${PROJECT_ROOT}/config/clients/ssv/encrypted_private_key.json:/ssv-dkg/config/encrypted_private_key.json
+      - ./data/ssv-dkg:/ssv-dkg/data
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+
+networks:
+  ethnode:

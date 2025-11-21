@@ -1,0 +1,35 @@
+  chain = "{{ getenv "NETWORK" }}"
+
+  [pbs]
+  host = "0.0.0.0"
+  port = 18550
+  relay_check = true
+  timeout_get_header_ms = 950
+  timeout_get_payload_ms = 4000
+  timeout_register_validator_ms = 3000
+  skip_sigverify = false
+  min_bid_eth = {{ getenv "MIN_BID_ETH" }}
+
+  {{- $relayList := strings.Split "," ( getenv "RELAYS" ) }}
+  {{- range $relayList }}
+  [[relays]]
+  url = "{{ . }}"
+  # OPTIONAL, DEFAULT: false
+  enable_timing_games = false
+  # Target time in slot when to send the first header request
+  # OPTIONAL
+  target_first_request_ms = 200
+  # Frequency in ms to send get_header requests
+  # OPTIONAL
+  frequency_get_header_ms = 300
+  # Maximum number of validators to register in a single request.
+  # OPTIONAL, DEFAULT: "" (unlimited)
+  validator_registration_batch_size = ""
+  {{- end }}
+
+  [logs.stdout]
+  enabled = true
+  level = "info"
+
+  [logs.file]
+  enabled = false
