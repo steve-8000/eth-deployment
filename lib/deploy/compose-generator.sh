@@ -171,15 +171,26 @@ fi
 
 # Add MEV-Boost
 if [ "$SELECTED_MEV" = "mevboost" ] || [ "$SELECTED_MEV" = "both" ]; then
-    if [ -f "$DOCKER_COMPOSE_DIR/docker-compose.mev.yaml" ]; then
-        echo "" >> "$OUTPUT_FILE"
-        echo "  # MEV-Boost" >> "$OUTPUT_FILE"
+    echo "" >> "$OUTPUT_FILE"
+    echo "  # MEV-Boost" >> "$OUTPUT_FILE"
+    # Try docker-compose.yaml first (where mev-boost actually is)
+    if [ -f "$DOCKER_COMPOSE_DIR/docker-compose.yaml" ]; then
+        if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/docker-compose.yaml" "mev-boost"; then
+            print_warning "Failed to add MEV-Boost service from docker-compose.yaml, trying alternative..."
+            # Fallback: try docker-compose.mev.yaml
+            if [ -f "$DOCKER_COMPOSE_DIR/docker-compose.mev.yaml" ]; then
+                if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/docker-compose.mev.yaml" "mev-boost"; then
+                    print_warning "Failed to add MEV-Boost service, continuing..."
+                fi
+            else
+                print_warning "MEV-Boost service not found in any compose file"
+            fi
+        fi
+    elif [ -f "$DOCKER_COMPOSE_DIR/docker-compose.mev.yaml" ]; then
         if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/docker-compose.mev.yaml" "mev-boost"; then
             print_warning "Failed to add MEV-Boost service, continuing..."
         fi
     elif [ -f "$PROJECT_ROOT/docker-compose.yaml" ]; then
-        echo "" >> "$OUTPUT_FILE"
-        echo "  # MEV-Boost" >> "$OUTPUT_FILE"
         if ! merge_service_from_file "$PROJECT_ROOT/docker-compose.yaml" "mev-boost"; then
             print_warning "Failed to add MEV-Boost service, continuing..."
         fi
