@@ -8,6 +8,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONFIG_DIR="$PROJECT_ROOT/config"
 
+# Source utilities
+if [ ! -f "$SCRIPT_DIR/utils.sh" ]; then
+    echo "Error: utils.sh not found at $SCRIPT_DIR/utils.sh" >&2
+    exit 1
+fi
 source "$SCRIPT_DIR/utils.sh"
 
 setup_environment() {

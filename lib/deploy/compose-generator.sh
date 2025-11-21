@@ -344,13 +344,13 @@ if ! grep -q "^services:" "$OUTPUT_FILE"; then
 fi
 
 # Check for duplicate keys (networks, volumes)
-local networks_count=$(grep -c "^networks:" "$OUTPUT_FILE" 2>/dev/null || echo "0")
-local volumes_count=$(grep -c "^volumes:" "$OUTPUT_FILE" 2>/dev/null || echo "0")
+networks_count=$(grep -c "^networks:" "$OUTPUT_FILE" 2>/dev/null || echo "0")
+volumes_count=$(grep -c "^volumes:" "$OUTPUT_FILE" 2>/dev/null || echo "0")
 
 if [ "$networks_count" -gt 1 ]; then
     print_warning "Duplicate 'networks:' sections found. Removing duplicates..."
     # Keep only the last networks section
-    local temp_file="${OUTPUT_FILE}.tmp"
+    temp_file="${OUTPUT_FILE}.tmp"
     if awk '/^networks:/{if(++count>1)skip=1} skip && /^[a-zA-Z]/ && !/^  /{skip=0} !skip' "$OUTPUT_FILE" > "$temp_file" 2>/dev/null; then
         if [ -s "$temp_file" ]; then
             mv "$temp_file" "$OUTPUT_FILE"
@@ -367,7 +367,7 @@ fi
 if [ "$volumes_count" -gt 1 ]; then
     print_warning "Duplicate 'volumes:' sections found. Removing duplicates..."
     # Keep only the last volumes section
-    local temp_file="${OUTPUT_FILE}.tmp"
+    temp_file="${OUTPUT_FILE}.tmp"
     if awk '/^volumes:/{if(++count>1)skip=1} skip && /^[a-zA-Z]/ && !/^  /{skip=0} !skip' "$OUTPUT_FILE" > "$temp_file" 2>/dev/null; then
         if [ -s "$temp_file" ]; then
             mv "$temp_file" "$OUTPUT_FILE"

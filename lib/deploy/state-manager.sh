@@ -12,6 +12,11 @@ LOG_FILE="$STATE_DIR/deployment.log"
 CURRENT_STATE="$STATE_DIR/current.json"
 HISTORY_DIR="$STATE_DIR/history"
 
+# Source utilities
+if [ ! -f "$SCRIPT_DIR/utils.sh" ]; then
+    echo "Error: utils.sh not found at $SCRIPT_DIR/utils.sh" >&2
+    exit 1
+fi
 source "$SCRIPT_DIR/utils.sh"
 
 # Initialize state directory
