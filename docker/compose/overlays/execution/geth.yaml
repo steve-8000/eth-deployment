@@ -7,9 +7,9 @@ services:
   # | (_| |  __/ |_| | | |
   #  \__, |\___|\__|_| |_|
   #  |___/
-  geth:
+  execution-client:
     image: ethereum/client-go:${GETH_VERSION}
-    container_name: geth-${NETWORK}
+    container_name: execution-client-${NETWORK}
     ports:
       - "${EC_PORT_P2P}:30303/tcp"
       - "${EC_PORT_P2P}:30303/udp"
@@ -23,7 +23,7 @@ services:
       --http.addr=0.0.0.0
       --http.port=8545
       --http.vhosts="*"
-      --http.api="db,eth,net,engine,rpc,web3"
+      --http.api="eth,net,engine,rpc,web3"
       --ws
       --ws.addr=0.0.0.0
       --ws.port=8546
@@ -47,19 +47,13 @@ services:
       --txpool.pricebump=${GETH_TXPOOL_PRICEBUMP:-10}
       --txpool.nolocals
       --syncmode=snap
-      --bloomfilter.size=${GETH_BLOOM_SIZE:-2048}
       --db.engine=pebble
-      --db.pebble.cache=${GETH_PEBBLE_CACHE:-2048}
-      --db.pebble.memory=${GETH_PEBBLE_MEMORY:-512}
-      --db.pebble.maxopenfiles=${GETH_PEBBLE_MAXOPENFILES:-1000}
-      --db.pebble.write-buffer-size=${GETH_PEBBLE_WRITE_BUFFER_SIZE:-64}
-      --db.pebble.target-file-size=${GETH_PEBBLE_TARGET_FILE_SIZE:-64}
     networks:
       - ethnode
     volumes:
-      - chain-data:/root/.ethereum
+      - ${PROJECT_ROOT}/data/geth/${NETWORK}:/root/.ethereum
       - ${PROJECT_ROOT}/security/jwt/${ENV}/jwt.hex:/jwt/jwt.hex:ro
-      - logs:/root/logs
+      - ${PROJECT_ROOT}/data/logs:/root/logs
     restart: unless-stopped
     logging:
       driver: "json-file"

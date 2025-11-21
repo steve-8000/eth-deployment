@@ -8,7 +8,7 @@ services:
   # |_____\___/ \___\__,_|\__\___| \__\___/|_|   
   lodestar-vc:
     image: chainsafe/lodestar:${LODESTAR_VERSION}
-    container_name: lodestar-vc-${NETWORK}
+    container_name: validator-client-${NETWORK}
     ports:
       - "${VC_PORT_HTTP}:5062"
       - "${VC_PORT_METRICS}:5064"
@@ -34,9 +34,9 @@ services:
     networks:
       - ethnode
     volumes:
-      - keys:/keys:ro
-      - chain-data:/data/lodestar-vc
-      - logs:/data/logs
+      - ${PROJECT_ROOT}/data/validator-client/${NETWORK}/keys:/keys:ro
+      - ${PROJECT_ROOT}/data/validator-client/${NETWORK}/lodestar:/data/lodestar-vc
+      - ${PROJECT_ROOT}/data/logs:/data/logs
     restart: unless-stopped
     logging:
       driver: "json-file"

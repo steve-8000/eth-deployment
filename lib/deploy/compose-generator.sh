@@ -107,7 +107,7 @@ if [ -n "$SELECTED_EC" ]; then
         geth)
             echo "" >> "$OUTPUT_FILE"
             echo "  # Execution Client: Geth" >> "$OUTPUT_FILE"
-            if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/execution/geth.yaml" "geth"; then
+            if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/execution/geth.yaml" "execution-client"; then
                 print_error "Failed to add Geth service"
                 exit 1
             fi
@@ -115,7 +115,7 @@ if [ -n "$SELECTED_EC" ]; then
         nethermind)
             echo "" >> "$OUTPUT_FILE"
             echo "  # Execution Client: Nethermind" >> "$OUTPUT_FILE"
-            if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/execution/nethermind.yaml" "nethermind"; then
+            if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/execution/nethermind.yaml" "execution-client"; then
                 print_error "Failed to add Nethermind service"
                 exit 1
             fi
@@ -123,7 +123,7 @@ if [ -n "$SELECTED_EC" ]; then
         reth)
             echo "" >> "$OUTPUT_FILE"
             echo "  # Execution Client: Reth" >> "$OUTPUT_FILE"
-            if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/execution/reth.yaml" "reth"; then
+            if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/execution/reth.yaml" "execution-client"; then
                 print_error "Failed to add Reth service"
                 exit 1
             fi
@@ -137,7 +137,7 @@ if [ -n "$SELECTED_CC" ]; then
         lighthouse)
             echo "" >> "$OUTPUT_FILE"
             echo "  # Consensus Client: Lighthouse" >> "$OUTPUT_FILE"
-            if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/consensus/lighthouse.yaml" "lighthouse"; then
+            if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/consensus/lighthouse.yaml" "consensus-client"; then
                 print_error "Failed to add Lighthouse service"
                 exit 1
             fi
@@ -145,7 +145,7 @@ if [ -n "$SELECTED_CC" ]; then
         teku)
             echo "" >> "$OUTPUT_FILE"
             echo "  # Consensus Client: Teku" >> "$OUTPUT_FILE"
-            if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/consensus/teku.yaml" "teku"; then
+            if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/consensus/teku.yaml" "consensus-client"; then
                 print_error "Failed to add Teku service"
                 exit 1
             fi
@@ -153,7 +153,7 @@ if [ -n "$SELECTED_CC" ]; then
         prysm)
             echo "" >> "$OUTPUT_FILE"
             echo "  # Consensus Client: Prysm" >> "$OUTPUT_FILE"
-            if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/consensus/prysm.yaml" "prysm"; then
+            if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/consensus/prysm.yaml" "consensus-client"; then
                 print_error "Failed to add Prysm service"
                 exit 1
             fi
@@ -162,7 +162,7 @@ if [ -n "$SELECTED_CC" ]; then
             if [ -f "$DOCKER_COMPOSE_DIR/overlays/consensus/lodestar.yaml" ]; then
                 echo "" >> "$OUTPUT_FILE"
                 echo "  # Consensus Client: Lodestar" >> "$OUTPUT_FILE"
-                if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/consensus/lodestar.yaml" "lodestar"; then
+                if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/consensus/lodestar.yaml" "consensus-client"; then
                     print_error "Failed to add Lodestar service"
                     exit 1
                 fi
@@ -307,7 +307,7 @@ if [ -n "$SELECTED_DVT" ]; then
     fi
 fi
 
-# Add networks and volumes (only if not already present)
+# Add networks (only if not already present)
 if ! grep -q "^networks:" "$OUTPUT_FILE"; then
     cat >> "$OUTPUT_FILE" <<'EOF'
 
@@ -318,18 +318,28 @@ networks:
       config:
         - subnet: 172.20.0.0/16
 EOF
-fi
+else
+    # Ensure networks section has content
+    if ! grep -A 5 "^networks:" "$OUTPUT_FILE" | grep -q "ethnode:"; then
+        print_warning "networks section exists but is empty, adding content..."
+        # Remove empty networks section
+        sed -i '/^networks:$/,$d' "$OUTPUT_FILE"
+        # Add proper networks section
+        cat >> "$OUTPUT_FILE" <<'EOF'
 
-# Add volumes (only if not already present)
-if ! grep -q "^volumes:" "$OUTPUT_FILE"; then
-    cat >> "$OUTPUT_FILE" <<'EOF'
-
-volumes:
-  chain-data:
-  keys:
-  logs:
+networks:
+  ethnode:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
 EOF
+    fi
 fi
+
+# Note: volumes section removed - using bind mounts instead
+# Data is stored in ${PROJECT_ROOT}/data/{client}/{network}/
+# No need for Docker volumes
 
 # Validate generated compose file
 if [ ! -s "$OUTPUT_FILE" ]; then
@@ -347,6 +357,18 @@ fi
 networks_count=$(grep -c "^networks:" "$OUTPUT_FILE" 2>/dev/null || echo "0")
 volumes_count=$(grep -c "^volumes:" "$OUTPUT_FILE" 2>/dev/null || echo "0")
 
+# Ensure counts are integers (remove any whitespace)
+networks_count=$(echo "$networks_count" | tr -d '[:space:]' || echo "0")
+volumes_count=$(echo "$volumes_count" | tr -d '[:space:]' || echo "0")
+
+# Default to 0 if empty or not a number
+if [ -z "$networks_count" ] || ! [[ "$networks_count" =~ ^[0-9]+$ ]]; then
+    networks_count=0
+fi
+if [ -z "$volumes_count" ] || ! [[ "$volumes_count" =~ ^[0-9]+$ ]]; then
+    volumes_count=0
+fi
+
 if [ "$networks_count" -gt 1 ]; then
     print_warning "Duplicate 'networks:' sections found. Removing duplicates..."
     # Keep only the last networks section
@@ -361,6 +383,26 @@ if [ "$networks_count" -gt 1 ]; then
     else
         rm -f "$temp_file"
         print_warning "Failed to process duplicate networks, keeping original"
+    fi
+fi
+
+# Ensure networks section is not empty and has proper content
+if grep -q "^networks:" "$OUTPUT_FILE"; then
+    # Check if networks section has content (not just "networks:")
+    if ! grep -A 5 "^networks:" "$OUTPUT_FILE" | grep -q "ethnode:"; then
+        print_warning "networks section is empty or incomplete, fixing..."
+        # Remove empty networks section
+        sed -i '/^networks:$/,$d' "$OUTPUT_FILE"
+        # Add proper networks section
+        cat >> "$OUTPUT_FILE" <<'EOF'
+
+networks:
+  ethnode:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+EOF
     fi
 fi
 

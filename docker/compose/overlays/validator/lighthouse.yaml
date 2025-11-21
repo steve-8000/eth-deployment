@@ -9,7 +9,7 @@ services:
   #      |___/
   lighthouse-vc:
     image: sigp/lighthouse:${LIGHTHOUSE_VERSION}
-    container_name: lighthouse-vc-${NETWORK}
+    container_name: validator-client-${NETWORK}
     ports:
       - "${VC_PORT_HTTP}:5062"
       - "${VC_PORT_METRICS}:5064"
@@ -35,9 +35,9 @@ services:
     networks:
       - ethnode
     volumes:
-      - keys:/opt/lighthouse/keys:ro
-      - chain-data:/root/.lighthouse
-      - logs:/data/logs
+      - ${PROJECT_ROOT}/data/validator-client/${NETWORK}/keys:/opt/lighthouse/keys:ro
+      - ${PROJECT_ROOT}/data/validator-client/${NETWORK}/lighthouse:/root/.lighthouse
+      - ${PROJECT_ROOT}/data/logs:/data/logs
     restart: unless-stopped
     logging:
       driver: "json-file"

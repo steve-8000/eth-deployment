@@ -50,26 +50,142 @@ show_status() {
     # Detect current configuration
     local current_config=$(detect_current_config)
     
-    echo -e "${CYAN}Current Deployment Configuration:${NC}"
-    echo -e "${YELLOW}────────────────────────────────────────────────────────────${NC}"
-    format_deployment_info "$current_config"
+    # Calculate running services count (same as main menu)
+    local running_count=0
+    if [ -f "$COMPOSE_FILE" ]; then
+        # Use grep method as primary (more reliable)
+        running_count=$(docker compose -f "$COMPOSE_FILE" ps --format "{{.State}}" 2>/dev/null | grep -c "^running$" 2>/dev/null || echo "0")
+        
+        # Ensure running_count is a valid number
+        if [ -z "$running_count" ] || [ "$running_count" = "" ] || ! [[ "$running_count" =~ ^[0-9]+$ ]]; then
+            running_count=0
+        fi
+    fi
+    
+    # Display status header (same format as main menu)
+    if [ "$running_count" -gt 0 ]; then
+        echo -e "${GREEN}Status: Running ($running_count services)${NC}"
+    else
+        echo -e "${YELLOW}Status: Stopped${NC}"
+    fi
     echo ""
     
-    # Show running services
-    echo -e "${CYAN}Running Services:${NC}"
-    echo -e "${YELLOW}────────────────────────────────────────────────────────────${NC}"
+    # Parse current config to get service names
+    local network=""
+    local ec=""
+    local cc=""
+    local mev=""
+    local vc=""
+    local dvt=""
     
-    local services=$(get_running_services)
-    if [ "$services" != "[]" ] && [ -n "$services" ]; then
-        if command_exists jq && echo "$services" | jq -e . >/dev/null 2>&1; then
-            echo "$services" | jq -r '.[] | "\(.name) (\(.service)) - \(.state) - \(.status)"' 2>/dev/null || \
-            docker compose -f "$COMPOSE_FILE" ps --format "table {{.Name}}\t{{.Service}}\t{{.State}}\t{{.Status}}"
-        else
-            docker compose -f "$COMPOSE_FILE" ps --format "table {{.Name}}\t{{.Service}}\t{{.State}}\t{{.Status}}" 2>/dev/null || \
-            docker ps --filter "label=com.ethereum.network" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-        fi
+    if command_exists jq && echo "$current_config" | jq -e . >/dev/null 2>&1; then
+        network=$(echo "$current_config" | jq -r '.network // ""')
+        ec=$(echo "$current_config" | jq -r '.ec // ""')
+        cc=$(echo "$current_config" | jq -r '.cc // ""')
+        mev=$(echo "$current_config" | jq -r '.mev // ""')
+        vc=$(echo "$current_config" | jq -r '.vc // ""')
+        dvt=$(echo "$current_config" | jq -r '.dvt // ""')
     else
-        print_warning "No services are currently running"
+        network=$(echo "$current_config" | grep -o '"network":"[^"]*"' | cut -d'"' -f4 || echo "")
+        ec=$(echo "$current_config" | grep -o '"ec":"[^"]*"' | cut -d'"' -f4 || echo "")
+        cc=$(echo "$current_config" | grep -o '"cc":"[^"]*"' | cut -d'"' -f4 || echo "")
+        mev=$(echo "$current_config" | grep -o '"mev":"[^"]*"' | cut -d'"' -f4 || echo "")
+        vc=$(echo "$current_config" | grep -o '"vc":"[^"]*"' | cut -d'"' -f4 || echo "")
+        dvt=$(echo "$current_config" | grep -o '"dvt":"[^"]*"' | cut -d'"' -f4 || echo "")
+    fi
+    
+    # Display in Current Selection format (same as main menu)
+    echo -e "  Network:     ${GREEN}${network:-not set}${NC}"
+    
+    # Execution Client
+    if [ -n "$ec" ] && [ "$ec" != "none" ]; then
+        local ec_info=$(get_container_info "execution-client")
+        echo -e "  EC:          ${GREEN}${ec}${CYAN}${ec_info}${NC}"
+    else
+        echo -e "  EC:          ${GREEN}not set${NC}"
+    fi
+    
+    # Consensus Client
+    if [ -n "$cc" ] && [ "$cc" != "none" ]; then
+        local cc_info=$(get_container_info "consensus-client")
+        echo -e "  CC:          ${GREEN}${cc}${CYAN}${cc_info}${NC}"
+    else
+        echo -e "  CC:          ${GREEN}not set${NC}"
+    fi
+    
+    # MEV
+    if [ -n "$mev" ] && [ "$mev" != "none" ]; then
+        local mev_display=""
+        local mev_service=""
+        case "$mev" in
+            mevboost)
+                mev_display="MEV-Boost"
+                mev_service="mev-boost"
+                ;;
+            commitboost)
+                mev_display="Commit Boost"
+                mev_service="commit-boost"
+                ;;
+            both)
+                mev_display="Both"
+                mev_service="mev-boost"
+                ;;
+            *)
+                mev_display="$mev"
+                mev_service="mev-boost"
+                ;;
+        esac
+        local mev_info=$(get_container_info "$mev_service")
+        echo -e "  MEV:         ${GREEN}${mev_display}${CYAN}${mev_info}${NC}"
+    else
+        echo -e "  MEV:         ${GREEN}not set${NC}"
+    fi
+    
+    # VC/DVT
+    if [ -n "$vc" ] && [ "$vc" != "none" ]; then
+        local vc_display=""
+        local vc_service=""
+        case "$vc" in
+            lighthouse)
+                vc_display="Lighthouse VC"
+                vc_service="lighthouse-vc"
+                ;;
+            teku)
+                vc_display="Teku VC"
+                vc_service="teku-vc"
+                ;;
+            lodestar)
+                vc_display="Lodestar VC"
+                vc_service="lodestar-vc"
+                ;;
+            *)
+                vc_display="$vc"
+                vc_service="validator-client"
+                ;;
+        esac
+        local vc_info=$(get_container_info "$vc_service")
+        echo -e "  VC/DVT:      ${GREEN}${vc_display}${CYAN}${vc_info}${NC}"
+    elif [ -n "$dvt" ] && [ "$dvt" != "none" ]; then
+        local dvt_display=""
+        local dvt_service=""
+        case "$dvt" in
+            obol)
+                dvt_display="Obol DVT"
+                dvt_service="charon"
+                ;;
+            ssv)
+                dvt_display="SSV DVT"
+                dvt_service="ssv-node"
+                ;;
+            *)
+                dvt_display="$dvt"
+                dvt_service="validator-client"
+                ;;
+        esac
+        local dvt_info=$(get_container_info "$dvt_service")
+        echo -e "  VC/DVT:      ${GREEN}${dvt_display}${CYAN}${dvt_info}${NC}"
+    else
+        echo -e "  VC/DVT:      ${GREEN}not set${NC}"
     fi
     
     echo ""
@@ -205,7 +321,12 @@ remove_all() {
         fi
     fi
     
-    print_info "Removing services and volumes..."
+    # First, stop running services
+    print_info "Stopping running services..."
+    docker compose -f "$COMPOSE_FILE" stop 2>/dev/null || true
+    
+    # Then, remove containers, volumes, and networks
+    print_info "Removing services, containers, volumes, and networks..."
     docker compose -f "$COMPOSE_FILE" down -v --remove-orphans
     
     print_info "Removing generated files..."
@@ -508,17 +629,14 @@ main_menu() {
         
         echo -e "${BLUE}Maintenance Menu:${NC}"
         echo ""
-        echo "  1) View Status"
-        echo "  2) Stop Services"
-        echo "  3) Restart Services"
-        echo "  4) View Logs (Real-time)"
-        echo "  5) Save Logs (Last 1000 lines)"
-        echo "  6) View Deployment History"
-        echo "  7) Complete Removal (including data)"
+        echo "  1) Stop Services"
+        echo "  2) Restart Services"
+        echo "  3) View Deployment History"
+        echo "  4) Complete Removal (including data)"
         echo ""
         echo "  0) Back to Main Menu"
         echo ""
-        read -p "Select option [0-7]: " choice
+        read -p "Select option [0-4]: " choice
         
         # Validate input
         if [ -z "$choice" ]; then
@@ -528,13 +646,10 @@ main_menu() {
         fi
         
         case $choice in
-            1) show_status; read -p "Press Enter to continue..."; ;;
-            2) stop_services; sleep 2; ;;
-            3) restart_services; sleep 2; ;;
-            4) view_logs; ;;
-            5) save_logs; ;;
-            6) show_history; ;;
-            7) remove_all; sleep 2; ;;
+            1) stop_services; sleep 2; ;;
+            2) restart_services; sleep 2; ;;
+            3) show_history; ;;
+            4) remove_all; sleep 2; ;;
             0) return 0; ;;
             *) print_error "Invalid selection"; sleep 1; ;;
         esac

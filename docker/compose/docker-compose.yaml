@@ -6,6 +6,7 @@ services:
   #  |_| |_| |_|\___| \_/      |_.__/ \___/ \___/|___/\__|
   mev-boost:
     image: flashbots/mev-boost:${MEVBOOST_VERSION}
+    container_name: mev-boost-${NETWORK}
     ports:
       - "18550:18550"
     command: |
@@ -26,7 +27,7 @@ services:
         max-file: "5"
         compress: "true"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:18550/healthz"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:18550/eth/v1/builder/status"]
       interval: 60s
       timeout: 10s
       retries: 3

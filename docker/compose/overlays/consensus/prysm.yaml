@@ -6,9 +6,9 @@ services:
   # | |_) | |  | |_| \__ \ | | | | |
   # | .__/|_|   \__, |___/_| |_| |_|
   # |_|         |___/               
-  prysm:
+  consensus-client:
     image: gcr.io/prysmaticlabs/prysm/beacon-chain:${PRYSM_VERSION}
-    container_name: prysm-${NETWORK}
+    container_name: consensus-client-${NETWORK}
     ports:
       - "${CC_PORT_P2P}:9000/tcp"
       - "${CC_PORT_P2P}:9000/udp"
@@ -48,10 +48,10 @@ services:
     networks:
       - ethnode
     volumes:
-      - chain-data:/data/prysm
+      - ${PROJECT_ROOT}/data/prysm/${NETWORK}:/data/prysm
       - ${PROJECT_ROOT}/security/jwt/${ENV}/jwt.hex:/jwt/jwt.hex:ro
       - ${PROJECT_ROOT}/genesis.ssz:/genesis/genesis.ssz:ro
-      - logs:/data/logs
+      - ${PROJECT_ROOT}/data/logs:/data/logs
     restart: unless-stopped
     logging:
       driver: "json-file"

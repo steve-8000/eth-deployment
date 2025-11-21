@@ -60,23 +60,327 @@ save_config() {
 # Print header
 print_header() {
     clear
-    echo -e "${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║     Ethereum Node Deployment - Interactive Setup          ║${NC}"
-    echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
+    # Direct spacing for perfect centering (no calculations)
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}                                                               ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}                     ${GREEN}Ethereum Node Tools${NC}                       ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}                                                               ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}                ${YELLOW}Created by: stv.z8k@gmail.com${NC}                  ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}                                                               ${CYAN}║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
+}
+
+# Get container info (uptime and image version)
+get_container_info() {
+    local service_name="$1"
+    local compose_file="$PROJECT_ROOT/docker-compose.generated.yaml"
+    
+    if [ ! -f "$compose_file" ]; then
+        echo ""
+        return
+    fi
+    
+    # Get container name from compose file or use service name
+    local container_name=""
+    if command_exists docker; then
+        # Try to find running container by service name
+        container_name=$(docker compose -f "$compose_file" ps --format "{{.Name}}" "$service_name" 2>/dev/null | head -1)
+        
+        if [ -z "$container_name" ]; then
+            # Try alternative: find by service name pattern
+            container_name=$(docker ps --filter "label=com.docker.compose.service=$service_name" --format "{{.Names}}" 2>/dev/null | head -1)
+        fi
+        
+        if [ -z "$container_name" ]; then
+            # Try to find by unified container name pattern
+            case "$service_name" in
+                execution-client)
+                    container_name=$(docker ps --filter "name=execution-client-" --format "{{.Names}}" 2>/dev/null | head -1)
+                    ;;
+                consensus-client)
+                    container_name=$(docker ps --filter "name=consensus-client-" --format "{{.Names}}" 2>/dev/null | head -1)
+                    ;;
+                mev-boost)
+                    container_name=$(docker ps --filter "name=mev-boost-" --format "{{.Names}}" 2>/dev/null | head -1)
+                    ;;
+                validator-client|*-vc)
+                    container_name=$(docker ps --filter "name=validator-client-" --format "{{.Names}}" 2>/dev/null | head -1)
+                    ;;
+            esac
+        fi
+    fi
+    
+    if [ -z "$container_name" ]; then
+        echo ""
+        return
+    fi
+    
+    # Get container info
+    local container_info=$(docker inspect "$container_name" 2>/dev/null)
+    if [ -z "$container_info" ]; then
+        echo ""
+        return
+    fi
+    
+    # Extract uptime
+    local started_at=""
+    local image_version=""
+    
+    if command_exists jq && echo "$container_info" | jq -e . >/dev/null 2>&1; then
+        started_at=$(echo "$container_info" | jq -r '.[0].State.StartedAt' 2>/dev/null)
+        image_version=$(echo "$container_info" | jq -r '.[0].Config.Image' 2>/dev/null)
+    else
+        # Fallback without jq
+        started_at=$(echo "$container_info" | grep -o '"StartedAt":"[^"]*"' | cut -d'"' -f4 2>/dev/null)
+        image_version=$(echo "$container_info" | grep -o '"Image":"[^"]*"' | cut -d'"' -f4 2>/dev/null)
+    fi
+    
+    # Calculate uptime
+    local uptime_str=""
+    if [ -n "$started_at" ] && [ "$started_at" != "null" ] && [ "$started_at" != "0001-01-01T00:00:00Z" ]; then
+        # Parse ISO 8601 timestamp and calculate uptime
+        if date -d "$started_at" >/dev/null 2>&1; then
+            # GNU date (Linux)
+            local started_epoch=$(date -d "$started_at" +%s 2>/dev/null)
+        elif date -j -f "%Y-%m-%dT%H:%M:%S" "${started_at%Z}" +%s >/dev/null 2>&1; then
+            # BSD date (macOS)
+            local started_epoch=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${started_at%Z}" +%s 2>/dev/null)
+        else
+            # Fallback: try to parse with date command
+            local started_epoch=$(date +%s -d "$started_at" 2>/dev/null || echo "")
+        fi
+        
+        if [ -n "$started_epoch" ]; then
+            local current_epoch=$(date +%s)
+            local uptime_seconds=$((current_epoch - started_epoch))
+            
+            if [ $uptime_seconds -gt 0 ]; then
+                local days=$((uptime_seconds / 86400))
+                local hours=$(((uptime_seconds % 86400) / 3600))
+                local minutes=$(((uptime_seconds % 3600) / 60))
+                
+                if [ $days -gt 0 ]; then
+                    uptime_str="${days}d ${hours}h"
+                elif [ $hours -gt 0 ]; then
+                    uptime_str="${hours}h ${minutes}m"
+                else
+                    uptime_str="${minutes}m"
+                fi
+            fi
+        fi
+    fi
+    
+    # Extract version from image (e.g., "nethermind/nethermind:1.35.2" -> "1.35.2")
+    local version=""
+    if [ -n "$image_version" ] && [ "$image_version" != "null" ]; then
+        version=$(echo "$image_version" | sed 's/.*://' | sed 's/^v//')
+    fi
+    
+    # Get container status from docker compose ps
+    local status=""
+    if [ -n "$container_name" ]; then
+        status=$(docker compose -f "$compose_file" ps --format "{{.Status}}" "$service_name" 2>/dev/null | head -1)
+        if [ -z "$status" ]; then
+            # Try alternative method
+            status=$(docker ps --filter "name=$container_name" --format "{{.Status}}" 2>/dev/null | head -1)
+        fi
+    fi
+    
+    # Parse status to extract health status and uptime
+    local health_status=""
+    local status_uptime=""
+    
+    if [ -n "$status" ]; then
+        # Extract health status (healthy, unhealthy, starting, etc.)
+        if echo "$status" | grep -q "healthy"; then
+            health_status="healthy"
+        elif echo "$status" | grep -q "unhealthy"; then
+            health_status="unhealthy"
+        elif echo "$status" | grep -q "starting"; then
+            health_status="starting"
+        elif echo "$status" | grep -q "Restarting"; then
+            health_status="restarting"
+        elif echo "$status" | grep -q "Exited"; then
+            health_status="exited"
+        elif echo "$status" | grep -q "Up"; then
+            health_status="running"
+        else
+            health_status="unknown"
+        fi
+        
+        # Extract uptime from status if available (e.g., "Up 5 minutes", "Up 2 hours")
+        # Handle formats like "Up 3 minutes (health: starting)" -> extract only "3 minutes"
+        if echo "$status" | grep -qE "Up [0-9]+"; then
+            # Extract uptime: match "Up X minutes" or "Up X hours" or "Up X seconds" before any parentheses
+            if echo "$status" | grep -qE "Up [0-9]+ (seconds|minutes|hours|days)"; then
+                status_uptime=$(echo "$status" | sed -E 's/.*Up ([0-9]+ (seconds?|minutes?|hours?|days?)).*/\1/' | head -1)
+            else
+                # Fallback: extract just the number and unit if format is different
+                status_uptime=$(echo "$status" | sed -E 's/.*Up ([0-9]+[^ (]*).*/\1/' | sed 's/ (health:.*//' | sed 's/ (unhealthy.*//' | head -1)
+            fi
+            # Clean up: remove any trailing spaces
+            status_uptime=$(echo "$status_uptime" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        fi
+    fi
+    
+    # Use status uptime if available, otherwise use calculated uptime
+    local display_uptime="${status_uptime:-${uptime_str}}"
+    
+    # Format output: "Version: 1.35.2 | STATUS: healthy(1m)"
+    local output=""
+    
+    if [ -n "$version" ] && [ -n "$health_status" ]; then
+        if [ -n "$display_uptime" ]; then
+            output="Version: ${version} | STATUS: ${health_status}(${display_uptime})"
+        else
+            output="Version: ${version} | STATUS: ${health_status}"
+        fi
+    elif [ -n "$version" ]; then
+        if [ -n "$display_uptime" ]; then
+            output="Version: ${version} | Uptime: ${display_uptime}"
+        else
+            output="Version: ${version}"
+        fi
+    elif [ -n "$health_status" ]; then
+        if [ -n "$display_uptime" ]; then
+            output="STATUS: ${health_status}(${display_uptime})"
+        else
+            output="STATUS: ${health_status}"
+        fi
+    elif [ -n "$display_uptime" ]; then
+        output="Uptime: ${display_uptime}"
+    fi
+    
+    if [ -n "$output" ]; then
+        echo " (${output})"
+    else
+        echo ""
+    fi
 }
 
 # Print current selection
 print_selection() {
-    echo -e "${YELLOW}Current Selection:${NC}"
+    # Check if deployment exists
+    local compose_file="$PROJECT_ROOT/docker-compose.generated.yaml"
+    local has_deployment=false
+    if [ -f "$compose_file" ]; then
+        has_deployment=true
+    fi
+    
+    # Calculate running services count
+    local running_count=0
+    if [ "$has_deployment" = true ]; then
+        # Use grep method as primary (more reliable)
+        running_count=$(docker compose -f "$compose_file" ps --format "{{.State}}" 2>/dev/null | grep -c "^running$" 2>/dev/null || echo "0")
+        
+        # Ensure running_count is a valid number
+        if [ -z "$running_count" ] || [ "$running_count" = "" ] || ! [[ "$running_count" =~ ^[0-9]+$ ]]; then
+            running_count=0
+        fi
+    fi
+    
+    # Display status header (replaces "Current Selection:")
+    if [ "$has_deployment" = true ] && [ "$running_count" -gt 0 ]; then
+        echo -e "${GREEN}Status: Running ($running_count services)${NC}"
+    elif [ "$has_deployment" = true ]; then
+        echo -e "${YELLOW}Status: Stopped${NC}"
+    else
+        echo -e "${YELLOW}Status: Not Deployed${NC}"
+    fi
+    echo ""
+    
+    # Network
     echo -e "  Network:     ${GREEN}${SELECTED_NETWORK:-not set}${NC}"
-    echo -e "  EC:          ${GREEN}${SELECTED_EC:-not set}${NC}"
-    echo -e "  CC:          ${GREEN}${SELECTED_CC:-not set}${NC}"
-    echo -e "  MEV:         ${GREEN}${SELECTED_MEV:-not set}${NC}"
-    echo -e "  VC/DVT:      ${GREEN}${SELECTED_VC:-not set}${NC}"
-    if [ -n "$SELECTED_DVT" ]; then
+    
+    # Execution Client
+    local ec_display="${SELECTED_EC:-not set}"
+    if [ "$ec_display" != "not set" ] && [ -n "$SELECTED_EC" ]; then
+        local ec_info=$(get_container_info "execution-client")
+        echo -e "  EC:          ${GREEN}${ec_display}${CYAN}${ec_info}${NC}"
+    else
+        echo -e "  EC:          ${GREEN}${ec_display}${NC}"
+    fi
+    
+    # Consensus Client
+    local cc_display="${SELECTED_CC:-not set}"
+    if [ "$cc_display" != "not set" ] && [ -n "$SELECTED_CC" ]; then
+        local cc_info=$(get_container_info "consensus-client")
+        echo -e "  CC:          ${GREEN}${cc_display}${CYAN}${cc_info}${NC}"
+    else
+        echo -e "  CC:          ${GREEN}${cc_display}${NC}"
+    fi
+    
+    # MEV
+    local mev_display="${SELECTED_MEV:-not set}"
+    if [ "$mev_display" != "not set" ] && [ -n "$SELECTED_MEV" ]; then
+        case "$SELECTED_MEV" in
+            mevboost)
+                local mev_info=$(get_container_info "mev-boost")
+                echo -e "  MEV:         ${GREEN}MEV-Boost${CYAN}${mev_info}${NC}"
+                ;;
+            commitboost)
+                local mev_info=$(get_container_info "commit-boost")
+                echo -e "  MEV:         ${GREEN}Commit Boost${CYAN}${mev_info}${NC}"
+                ;;
+            both)
+                local mev_info=$(get_container_info "mev-boost")
+                echo -e "  MEV:         ${GREEN}Both${CYAN}${mev_info}${NC}"
+                ;;
+            *)
+                echo -e "  MEV:         ${GREEN}${mev_display}${NC}"
+                ;;
+        esac
+    else
+        echo -e "  MEV:         ${GREEN}${mev_display}${NC}"
+    fi
+    
+    # VC/DVT
+    local vc_display="${SELECTED_VC:-not set}"
+    if [ -n "$SELECTED_VC" ]; then
+        local vc_info=""
+        case "$SELECTED_VC" in
+            lighthouse)
+                vc_info=$(get_container_info "lighthouse-vc")
+                vc_display="Lighthouse VC"
+                ;;
+            teku)
+                vc_info=$(get_container_info "teku-vc")
+                vc_display="Teku VC"
+                ;;
+            lodestar)
+                vc_info=$(get_container_info "lodestar-vc")
+                vc_display="Lodestar VC"
+                ;;
+            *)
+                vc_display="$SELECTED_VC"
+                ;;
+        esac
+        echo -e "  VC/DVT:      ${GREEN}${vc_display}${CYAN}${vc_info}${NC}"
+    elif [ -n "$SELECTED_DVT" ]; then
+        local dvt_info=""
+        case "$SELECTED_DVT" in
+            obol)
+                dvt_info=$(get_container_info "charon")
+                vc_display="Obol DVT"
+                ;;
+            ssv)
+                dvt_info=$(get_container_info "ssv-node")
+                vc_display="SSV DVT"
+                ;;
+            *)
+                vc_display="$SELECTED_DVT"
+                ;;
+        esac
+        echo -e "  VC/DVT:      ${GREEN}${vc_display}${CYAN}${dvt_info}${NC}"
+    else
+        echo -e "  VC/DVT:      ${GREEN}${vc_display}${NC}"
+    fi
+    
+    if [ -n "$SELECTED_DVT" ] && [ -z "$SELECTED_VC" ]; then
         echo -e "  DVT Type:    ${GREEN}${SELECTED_DVT}${NC}"
     fi
+    
     echo ""
 }
 
@@ -159,11 +463,10 @@ menu_cc() {
     echo "  1) Lighthouse"
     echo "  2) Teku"
     echo "  3) Prysm"
-    echo "  4) Lodestar"
-    echo "  5) None (Skip Consensus Client)"
+    echo "  4) None (Skip Consensus Client)"
     echo "  0) Back (Keep Current Selection)"
     echo ""
-    read -p "Select Consensus Client [1-4, 5, 0]: " choice
+    read -p "Select Consensus Client [1-3, 4, 0]: " choice
     
     # Validate input
     if [ -z "$choice" ]; then
@@ -177,8 +480,7 @@ menu_cc() {
         1) SELECTED_CC="lighthouse" ;;
         2) SELECTED_CC="teku" ;;
         3) SELECTED_CC="prysm" ;;
-        4) SELECTED_CC="lodestar" ;;
-        5) SELECTED_CC="" ;;
+        4) SELECTED_CC="" ;;
         0) return ;;
         *) echo -e "${RED}Invalid selection: $choice${NC}"; sleep 1; menu_cc ;;
     esac
@@ -288,6 +590,536 @@ menu_vc_dvt() {
         *) echo -e "${RED}Invalid selection: $choice${NC}"; sleep 1; menu_vc_dvt ;;
     esac
     save_config
+}
+
+# Filter logs by level
+filter_logs_by_level() {
+    local level="$1"
+    local service="${2:-}"
+    local compose_file="$PROJECT_ROOT/docker-compose.generated.yaml"
+    
+    if [ ! -f "$compose_file" ]; then
+        print_error "No deployment found"
+        return 1
+    fi
+    
+    # Set up trap to handle Ctrl+C gracefully
+    trap 'echo ""; echo -e "${YELLOW}Log viewing stopped. Returning to menu...${NC}"; sleep 1; trap - INT; return 0' INT
+    
+    case "$level" in
+        error)
+            if [ -n "$service" ]; then
+                docker compose -f "$compose_file" logs --tail=1000 -f "$service" 2>&1 | grep -iE "(error|err|failed|failure|critical|fatal)" --color=always || true
+            else
+                docker compose -f "$compose_file" logs --tail=1000 -f 2>&1 | grep -iE "(error|err|failed|failure|critical|fatal)" --color=always || true
+            fi
+            ;;
+        warn)
+            if [ -n "$service" ]; then
+                docker compose -f "$compose_file" logs --tail=1000 -f "$service" 2>&1 | grep -iE "(warn|warning|wrn)" --color=always || true
+            else
+                docker compose -f "$compose_file" logs --tail=1000 -f 2>&1 | grep -iE "(warn|warning|wrn)" --color=always || true
+            fi
+            ;;
+        error-warn)
+            if [ -n "$service" ]; then
+                docker compose -f "$compose_file" logs --tail=1000 -f "$service" 2>&1 | grep -iE "(error|err|failed|failure|critical|fatal|warn|warning|wrn)" --color=always || true
+            else
+                docker compose -f "$compose_file" logs --tail=1000 -f 2>&1 | grep -iE "(error|err|failed|failure|critical|fatal|warn|warning|wrn)" --color=always || true
+            fi
+            ;;
+        all|*)
+            if [ -n "$service" ]; then
+                docker compose -f "$compose_file" logs --tail=1000 -f "$service" || true
+            else
+                docker compose -f "$compose_file" logs --tail=1000 -f || true
+            fi
+            ;;
+    esac
+    
+    # Remove trap
+    trap - INT
+}
+
+# View Error/Warn Logs
+view_error_warn_logs() {
+    local compose_file="$PROJECT_ROOT/docker-compose.generated.yaml"
+    
+    if [ ! -f "$compose_file" ]; then
+        print_error "No deployment found"
+        sleep 2
+        return 1
+    fi
+    
+    print_header
+    echo -e "${CYAN}View Error/Warn Logs${NC}"
+    echo ""
+    
+    # Get services
+    local services
+    if command_exists jq; then
+        services=$(docker compose -f "$compose_file" ps --format json 2>/dev/null | \
+            jq -r '.[] | "\(.Service)"' 2>/dev/null | sort -u)
+    else
+        services=$(docker compose -f "$compose_file" ps --format "{{.Service}}" 2>/dev/null | sort -u)
+    fi
+    
+    if [ -z "$services" ]; then
+        print_warning "No services found"
+        sleep 2
+        return 1
+    fi
+    
+    local service_list=($services)
+    local i=1
+    for service in "${service_list[@]}"; do
+        echo "  $i) $service"
+        i=$((i + 1))
+    done
+    echo "  0) All services"
+    echo ""
+    
+    read -p "Select service [0-$((i-1))]: " choice
+    
+    # Validate input
+    if [ -z "$choice" ]; then
+        print_error "No selection made"
+        sleep 1
+        return
+    fi
+    
+    local selected_service=""
+    if [ "$choice" = "0" ]; then
+        selected_service=""
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#service_list[@]}" ]; then
+        selected_service="${service_list[$((choice-1))]}"
+    else
+        print_error "Invalid selection: $choice"
+        sleep 1
+        return
+    fi
+    
+    # Select log level
+    clear
+    print_header
+    echo -e "${CYAN}Select log level:${NC}"
+    echo ""
+    if [ -n "$selected_service" ]; then
+        echo -e "  Service: ${GREEN}$selected_service${NC}"
+    else
+        echo -e "  Service: ${GREEN}All services${NC}"
+    fi
+    echo ""
+    echo "  1) Error only"
+    echo "  2) Warning only"
+    echo "  3) Error + Warning"
+    echo "  0) Back"
+    echo ""
+    read -p "Select option [0-3]: " level_choice
+    
+    case "$level_choice" in
+        1)
+            clear
+            echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
+            echo -e "${RED}  Error Logs: ${selected_service:-All services}${NC}"
+            echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
+            echo -e "${YELLOW}Press Ctrl+C to exit${NC}"
+            echo ""
+            filter_logs_by_level "error" "$selected_service"
+            ;;
+        2)
+            clear
+            echo -e "${YELLOW}════════════════════════════════════════════════════════════${NC}"
+            echo -e "${YELLOW}  Warning Logs: ${selected_service:-All services}${NC}"
+            echo -e "${YELLOW}════════════════════════════════════════════════════════════${NC}"
+            echo -e "${YELLOW}Press Ctrl+C to exit${NC}"
+            echo ""
+            filter_logs_by_level "warn" "$selected_service"
+            ;;
+        3)
+            clear
+            echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
+            echo -e "${RED}  Error + Warning Logs: ${selected_service:-All services}${NC}"
+            echo -e "${RED}════════════════════════════════════════════════════════════${NC}"
+            echo -e "${YELLOW}Press Ctrl+C to exit${NC}"
+            echo ""
+            filter_logs_by_level "error-warn" "$selected_service"
+            ;;
+        0)
+            return
+            ;;
+        *)
+            print_error "Invalid selection"
+            sleep 1
+            ;;
+    esac
+}
+
+# View Logs Menu
+view_logs_menu() {
+    local compose_file="$PROJECT_ROOT/docker-compose.generated.yaml"
+    
+    if [ ! -f "$compose_file" ]; then
+        print_error "No deployment found"
+        sleep 2
+        return 1
+    fi
+    
+    print_header
+    echo -e "${CYAN}View Logs (Real-time)${NC}"
+    echo ""
+    
+    # Get services
+    local services
+    if command_exists jq; then
+        services=$(docker compose -f "$compose_file" ps --format json 2>/dev/null | \
+            jq -r '.[] | "\(.Service)"' 2>/dev/null | sort -u)
+    else
+        services=$(docker compose -f "$compose_file" ps --format "{{.Service}}" 2>/dev/null | sort -u)
+    fi
+    
+    if [ -z "$services" ]; then
+        print_warning "No services found"
+        sleep 2
+        return 1
+    fi
+    
+    local service_list=($services)
+    local i=1
+    for service in "${service_list[@]}"; do
+        echo "  $i) $service"
+        i=$((i + 1))
+    done
+    echo "  0) All services"
+    echo ""
+    
+    read -p "Select service [0-$((i-1))]: " choice
+    
+    # Validate input
+    if [ -z "$choice" ]; then
+        print_error "No selection made"
+        sleep 1
+        return
+    fi
+    
+    local selected_service=""
+    if [ "$choice" = "0" ]; then
+        selected_service=""
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#service_list[@]}" ]; then
+        selected_service="${service_list[$((choice-1))]}"
+    else
+        print_error "Invalid selection: $choice"
+        sleep 1
+        return
+    fi
+    
+    clear
+    echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}  Real-time Logs: ${selected_service:-All services}${NC}"
+    echo -e "${GREEN}════════════════════════════════════════════════════════════${NC}"
+    echo -e "${YELLOW}Press Ctrl+C to exit${NC}"
+    echo ""
+    filter_logs_by_level "all" "$selected_service"
+}
+
+# Save Logs Menu
+save_logs_menu() {
+    local compose_file="$PROJECT_ROOT/docker-compose.generated.yaml"
+    
+    if [ ! -f "$compose_file" ]; then
+        print_error "No deployment found"
+        sleep 2
+        return 1
+    fi
+    
+    print_header
+    echo -e "${CYAN}Save Logs (Last 1000 lines)${NC}"
+    echo ""
+    
+    # Get services
+    local services
+    if command_exists jq; then
+        services=$(docker compose -f "$compose_file" ps --format json 2>/dev/null | \
+            jq -r '.[] | "\(.Service)"' 2>/dev/null | sort -u)
+    else
+        services=$(docker compose -f "$compose_file" ps --format "{{.Service}}" 2>/dev/null | sort -u)
+    fi
+    
+    if [ -z "$services" ]; then
+        print_warning "No services found"
+        sleep 2
+        return 1
+    fi
+    
+    local service_list=($services)
+    local i=1
+    for service in "${service_list[@]}"; do
+        echo "  $i) $service"
+        i=$((i + 1))
+    done
+    echo "  0) All services"
+    echo ""
+    
+    read -p "Select service [0-$((i-1))]: " choice
+    
+    # Validate input
+    if [ -z "$choice" ]; then
+        print_error "No selection made"
+        sleep 1
+        return
+    fi
+    
+    local selected_service=""
+    if [ "$choice" = "0" ]; then
+        selected_service=""
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#service_list[@]}" ]; then
+        selected_service="${service_list[$((choice-1))]}"
+    else
+        print_error "Invalid selection: $choice"
+        sleep 1
+        return
+    fi
+    
+    # Create logs directory
+    local logs_dir="$PROJECT_ROOT/logs"
+    mkdir -p "$logs_dir"
+    
+    # Generate filename
+    local timestamp=$(date +"%Y%m%d_%H%M%S")
+    local log_file
+    if [ -n "$selected_service" ]; then
+        log_file="$logs_dir/${selected_service}_${timestamp}.log"
+    else
+        log_file="$logs_dir/all_services_${timestamp}.log"
+    fi
+    
+    print_info "Saving last 1000 lines to: $log_file"
+    
+    if [ -n "$selected_service" ]; then
+        docker compose -f "$compose_file" logs --tail=1000 "$selected_service" > "$log_file" 2>&1
+    else
+        docker compose -f "$compose_file" logs --tail=1000 > "$log_file" 2>&1
+    fi
+    
+    if [ $? -eq 0 ]; then
+        local line_count=$(wc -l < "$log_file" | tr -d ' ')
+        print_success "Logs saved successfully ($line_count lines)"
+        echo ""
+        echo "File location: $log_file"
+        echo ""
+        read -p "Press Enter to continue..."
+    else
+        print_error "Failed to save logs"
+        sleep 2
+    fi
+}
+
+# Edit .env file
+edit_env_file() {
+    local env_file="$PROJECT_ROOT/.env"
+    
+    if [ ! -f "$env_file" ]; then
+        print_warning ".env file not found. Creating from template..."
+        if [ -f "$LIB_DIR/env-setup.sh" ]; then
+            bash "$LIB_DIR/env-setup.sh" "${SELECTED_NETWORK:-mainnet}"
+        else
+            print_error "env-setup.sh not found"
+            sleep 2
+            return
+        fi
+    fi
+    
+    print_header
+    echo -e "${BLUE}Edit .env File${NC}"
+    echo ""
+    echo -e "${CYAN}File location:${NC} $env_file"
+    echo ""
+    echo "Select editor:"
+    echo "  1) nano (recommended)"
+    echo "  2) vi/vim"
+    echo "  3) View only"
+    echo "  0) Back"
+    echo ""
+    read -p "Select option [0-3]: " editor_choice
+    
+    case $editor_choice in
+        1)
+            if command -v nano >/dev/null 2>&1; then
+                nano "$env_file"
+            else
+                print_error "nano not found. Using vi instead..."
+                sleep 1
+                vi "$env_file"
+            fi
+            ;;
+        2)
+            if command -v vi >/dev/null 2>&1; then
+                vi "$env_file"
+            else
+                print_error "vi not found"
+                sleep 2
+            fi
+            ;;
+        3)
+            print_header
+            echo -e "${BLUE}.env File Contents${NC}"
+            echo ""
+            cat "$env_file"
+            echo ""
+            read -p "Press Enter to continue..."
+            ;;
+        0)
+            return
+            ;;
+        *)
+            print_error "Invalid selection"
+            sleep 1
+            ;;
+    esac
+    
+    # Reload environment variables after editing
+    if [ -f "$env_file" ]; then
+        print_info "Reloading environment variables..."
+        set -a
+        source "$env_file" 2>/dev/null || true
+        set +a
+    fi
+}
+
+# New Deployment Configuration Menu
+new_deployment_menu() {
+    while true; do
+        print_header
+        echo -e "${BLUE}New Deployment - Configuration${NC}"
+        echo ""
+        
+        # Format current selections for display
+        local network_display="${SELECTED_NETWORK:-not set}"
+        local ec_display="${SELECTED_EC:-not set}"
+        local cc_display="${SELECTED_CC:-not set}"
+        
+        # Format MEV display
+        local mev_display="not set"
+        if [ -n "$SELECTED_MEV" ]; then
+            case "$SELECTED_MEV" in
+                mevboost) mev_display="MEV-Boost" ;;
+                commitboost) mev_display="Commit Boost" ;;
+                both) mev_display="Both" ;;
+                none) mev_display="None" ;;
+                *) mev_display="$SELECTED_MEV" ;;
+            esac
+        fi
+        
+        # Format VC/DVT display
+        local vc_display="not set"
+        if [ -n "$SELECTED_VC" ]; then
+            case "$SELECTED_VC" in
+                lighthouse) vc_display="Lighthouse VC" ;;
+                teku) vc_display="Teku VC" ;;
+                lodestar) vc_display="Lodestar VC" ;;
+                web3signer) vc_display="Web3Signer" ;;
+                *) vc_display="$SELECTED_VC" ;;
+            esac
+        elif [ -n "$SELECTED_DVT" ]; then
+            case "$SELECTED_DVT" in
+                obol) vc_display="Obol DVT" ;;
+                ssv) vc_display="SSV DVT" ;;
+                *) vc_display="$SELECTED_DVT" ;;
+            esac
+        fi
+        
+        echo -e "${CYAN}Configuration:${NC}"
+        echo -e "  1) Select Network          ${GREEN}[${network_display}]${NC}"
+        echo -e "  2) Select Execution Client ${GREEN}[${ec_display}]${NC}"
+        echo -e "  3) Select Consensus Client ${GREEN}[${cc_display}]${NC}"
+        echo -e "  4) Select MEV Option       ${GREEN}[${mev_display}]${NC}"
+        echo -e "  5) Select Validator Client / DVT ${GREEN}[${vc_display}]${NC}"
+        echo -e "  6) Edit .env File"
+        echo ""
+        echo -e "${GREEN}Deploy:${NC}"
+        echo "  7) Deploy Now"
+        echo ""
+        echo -e "${YELLOW}Tools:${NC}"
+        echo "  8) View Generated Compose"
+        echo "  9) Reset Configuration"
+        echo ""
+        echo "  0) Back to Main Menu"
+        echo ""
+        read -p "Select option [0-9]: " choice
+        
+        # Validate input
+        if [ -z "$choice" ]; then
+            echo -e "${RED}No selection made${NC}"
+            sleep 1
+            continue
+        fi
+        
+        case $choice in
+            1) menu_network ;;
+            2) menu_ec ;;
+            3) menu_cc ;;
+            4) menu_mev ;;
+            5) menu_vc_dvt ;;
+            6) 
+                # Edit .env file
+                edit_env_file
+                ;;
+            7) 
+                # Deploy
+                if [ -z "$SELECTED_NETWORK" ]; then 
+                    print_warning "Network not selected"
+                    menu_network
+                    continue
+                fi
+                if [ -z "$SELECTED_EC" ]; then 
+                    print_warning "Execution Client not selected"
+                    menu_ec
+                    continue
+                fi
+                if [ -z "$SELECTED_CC" ]; then 
+                    print_warning "Consensus Client not selected"
+                    menu_cc
+                    continue
+                fi
+                if [ -z "$SELECTED_MEV" ]; then 
+                    print_warning "MEV option not selected"
+                    menu_mev
+                    continue
+                fi
+                # VC/DVT is optional - don't force selection
+                if [ -z "$SELECTED_VC" ] && [ -z "$SELECTED_DVT" ]; then
+                    echo ""
+                    print_info "Validator Client / DVT is optional. You can skip this step."
+                    read -p "Configure Validator Client / DVT now? [y/N]: " vc_choice
+                    if [[ $vc_choice =~ ^[Yy]$ ]]; then
+                        menu_vc_dvt
+                    else
+                        print_info "Skipping Validator Client / DVT configuration"
+                    fi
+                fi
+                deploy
+                return
+                ;;
+            8) 
+                if [ -f "$TEMP_COMPOSE" ]; then 
+                    less "$TEMP_COMPOSE"
+                elif [ -f "$PROJECT_ROOT/docker-compose.generated.yaml" ]; then
+                    less "$PROJECT_ROOT/docker-compose.generated.yaml"
+                else
+                    print_warning "No compose file found"
+                    sleep 1
+                fi
+                ;;
+            9) 
+                SELECTED_EC=""; SELECTED_CC=""; SELECTED_MEV=""; SELECTED_VC=""; SELECTED_DVT=""; 
+                save_config
+                print_success "Configuration reset"
+                sleep 1
+                ;;
+            0) return ;;
+            *) echo -e "${RED}Invalid selection${NC}"; sleep 1 ;;
+        esac
+    done
 }
 
 # Generate Docker Compose file
@@ -469,32 +1301,9 @@ EOF
 
 # Show current deployment status in main menu
 show_current_deployment() {
-    if [ -f "$PROJECT_ROOT/docker-compose.generated.yaml" ]; then
-        source "$LIB_DIR/state-manager.sh"
-        local current_config=$(detect_current_config)
-        if [ "$current_config" != "{}" ] && [ -n "$current_config" ]; then
-            echo ""
-            echo -e "${CYAN}Current Deployment:${NC}"
-            echo -e "${YELLOW}────────────────────────────────────────────────────────────${NC}"
-            format_deployment_info "$current_config"
-            echo ""
-            
-            # Check if services are running
-            if is_deployed; then
-                local running_count="0"
-                if command_exists jq; then
-                    running_count=$(docker compose -f "$PROJECT_ROOT/docker-compose.generated.yaml" ps --format json 2>/dev/null | jq '[.[] | select(.State=="running")] | length' 2>/dev/null || echo "0")
-                else
-                    # Fallback: count running services without jq
-                    running_count=$(docker compose -f "$PROJECT_ROOT/docker-compose.generated.yaml" ps --format "{{.State}}" 2>/dev/null | grep -c "running" || echo "0")
-                fi
-                echo -e "${GREEN}Status: Running ($running_count services)${NC}"
-            else
-                echo -e "${YELLOW}Status: Stopped${NC}"
-            fi
-            echo ""
-        fi
-    fi
+    # This function is now integrated into print_selection
+    # Keep it empty to avoid duplicate display
+    return 0
 }
 
 # Main menu
@@ -506,61 +1315,42 @@ main_menu() {
         show_current_deployment
         
         print_selection
+        
+        # Check if deployment exists for quick log access
+        local compose_file="$PROJECT_ROOT/docker-compose.generated.yaml"
+        local has_deployment=false
+        if [ -f "$compose_file" ]; then
+            has_deployment=true
+        fi
+        
+        echo ""
         echo -e "${BLUE}Main Menu${NC}"
         echo ""
         echo -e "${GREEN}Deployment:${NC}"
-        echo "  1) New Deployment (First Time)"
-        echo "  2) Restart / Manage Existing"
-        echo ""
-        echo -e "${CYAN}Configuration:${NC}"
-        # Format current selections for display
-        local network_display="${SELECTED_NETWORK:-not set}"
-        local ec_display="${SELECTED_EC:-not set}"
-        local cc_display="${SELECTED_CC:-not set}"
-        
-        # Format MEV display
-        local mev_display="not set"
-        if [ -n "$SELECTED_MEV" ]; then
-            case "$SELECTED_MEV" in
-                mevboost) mev_display="MEV-Boost" ;;
-                commitboost) mev_display="Commit Boost" ;;
-                both) mev_display="Both" ;;
-                none) mev_display="None" ;;
-                *) mev_display="$SELECTED_MEV" ;;
-            esac
+        echo "  1) New Deployment"
+        echo "  2) Manage Existing"
+        echo "  3) Upgrade Version Information"
+        if [ "$has_deployment" = true ]; then
+            echo ""
+            echo -e "${YELLOW}Quick Log Access:${NC}"
+            if [ -n "$SELECTED_EC" ]; then
+                echo -e "  ${CYAN}ec${NC}) Execution Client Logs"
+            fi
+            if [ -n "$SELECTED_CC" ]; then
+                echo -e "  ${CYAN}cc${NC}) Consensus Client Logs"
+            fi
+            if [ -n "$SELECTED_MEV" ] && [ "$SELECTED_MEV" != "none" ]; then
+                echo -e "  ${CYAN}mev${NC}) MEV-Boost Logs"
+            fi
+            if [ -n "$SELECTED_VC" ]; then
+                echo -e "  ${CYAN}vc${NC}) Validator Client Logs"
+            fi
+            echo -e "  ${CYAN}all${NC}) All Services Logs"
         fi
-        
-        # Format VC/DVT display
-        local vc_display="not set"
-        if [ -n "$SELECTED_VC" ]; then
-            case "$SELECTED_VC" in
-                lighthouse) vc_display="Lighthouse VC" ;;
-                teku) vc_display="Teku VC" ;;
-                lodestar) vc_display="Lodestar VC" ;;
-                web3signer) vc_display="Web3Signer" ;;
-                *) vc_display="$SELECTED_VC" ;;
-            esac
-        elif [ -n "$SELECTED_DVT" ]; then
-            case "$SELECTED_DVT" in
-                obol) vc_display="Obol DVT" ;;
-                ssv) vc_display="SSV DVT" ;;
-                *) vc_display="$SELECTED_DVT" ;;
-            esac
-        fi
-        
-        echo -e "  3) Select Network          ${GREEN}[${network_display}]${NC}"
-        echo -e "  4) Select Execution Client ${GREEN}[${ec_display}]${NC}"
-        echo -e "  5) Select Consensus Client ${GREEN}[${cc_display}]${NC}"
-        echo -e "  6) Select MEV Option       ${GREEN}[${mev_display}]${NC}"
-        echo -e "  7) Select Validator Client / DVT ${GREEN}[${vc_display}]${NC}"
-        echo ""
-        echo -e "${YELLOW}Tools:${NC}"
-        echo "  8) View Generated Compose"
-        echo "  9) Reset Configuration"
         echo ""
         echo "  0) Exit"
         echo ""
-        read -p "Select option [0-9]: " choice
+        read -p "Select option: " choice
         
         # Validate input
         if [ -z "$choice" ]; then
@@ -571,23 +1361,8 @@ main_menu() {
         
         case $choice in
             1) 
-                # New deployment flow
-                if [ -z "$SELECTED_NETWORK" ]; then menu_network; fi
-                if [ -z "$SELECTED_EC" ]; then menu_ec; fi
-                if [ -z "$SELECTED_CC" ]; then menu_cc; fi
-                if [ -z "$SELECTED_MEV" ]; then menu_mev; fi
-                # VC/DVT is optional - don't force selection
-                if [ -z "$SELECTED_VC" ] && [ -z "$SELECTED_DVT" ]; then
-                    echo ""
-                    print_info "Validator Client / DVT is optional. You can skip this step."
-                    read -p "Configure Validator Client / DVT now? [y/N]: " vc_choice
-                    if [[ $vc_choice =~ ^[Yy]$ ]]; then
-                        menu_vc_dvt
-                    else
-                        print_info "Skipping Validator Client / DVT configuration"
-                    fi
-                fi
-                deploy
+                # New deployment flow - Configuration menu
+                new_deployment_menu
                 ;;
             2) 
                 # Maintenance menu
@@ -598,26 +1373,86 @@ main_menu() {
                     sleep 2
                 fi
                 ;;
-            3) menu_network ;;
-            4) menu_ec ;;
-            5) menu_cc ;;
-            6) menu_mev ;;
-            7) menu_vc_dvt ;;
-            8) 
-                if [ -f "$TEMP_COMPOSE" ]; then 
-                    less "$TEMP_COMPOSE"
-                elif [ -f "$PROJECT_ROOT/docker-compose.generated.yaml" ]; then
-                    less "$PROJECT_ROOT/docker-compose.generated.yaml"
+            ec|EC)
+                if [ "$has_deployment" = true ] && [ -n "$SELECTED_EC" ]; then
+                    clear
+                    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+                    echo -e "${CYAN}  Execution Client Logs (Real-time)${NC}"
+                    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+                    echo -e "${YELLOW}Press Ctrl+C to exit${NC}"
+                    echo ""
+                    filter_logs_by_level "all" "execution-client"
                 else
-                    print_warning "No compose file found"
+                    print_warning "No deployment or Execution Client found"
                     sleep 1
                 fi
                 ;;
-            9) 
-                SELECTED_EC=""; SELECTED_CC=""; SELECTED_MEV=""; SELECTED_VC=""; SELECTED_DVT=""; 
-                save_config
-                print_success "Configuration reset"
-                sleep 1
+            cc|CC)
+                if [ "$has_deployment" = true ] && [ -n "$SELECTED_CC" ]; then
+                    clear
+                    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+                    echo -e "${CYAN}  Consensus Client Logs (Real-time)${NC}"
+                    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+                    echo -e "${YELLOW}Press Ctrl+C to exit${NC}"
+                    echo ""
+                    filter_logs_by_level "all" "consensus-client"
+                else
+                    print_warning "No deployment or Consensus Client found"
+                    sleep 1
+                fi
+                ;;
+            mev|MEV)
+                if [ "$has_deployment" = true ] && [ -n "$SELECTED_MEV" ] && [ "$SELECTED_MEV" != "none" ]; then
+                    clear
+                    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+                    echo -e "${CYAN}  MEV-Boost Logs (Real-time)${NC}"
+                    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+                    echo -e "${YELLOW}Press Ctrl+C to exit${NC}"
+                    echo ""
+                    filter_logs_by_level "all" "mev-boost"
+                else
+                    print_warning "No deployment or MEV-Boost found"
+                    sleep 1
+                fi
+                ;;
+            vc|VC)
+                if [ "$has_deployment" = true ] && [ -n "$SELECTED_VC" ]; then
+                    clear
+                    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+                    echo -e "${CYAN}  Validator Client Logs (Real-time)${NC}"
+                    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+                    echo -e "${YELLOW}Press Ctrl+C to exit${NC}"
+                    echo ""
+                    local vc_service=""
+                    case "$SELECTED_VC" in
+                        lighthouse) vc_service="lighthouse-vc" ;;
+                        teku) vc_service="teku-vc" ;;
+                        lodestar) vc_service="lodestar-vc" ;;
+                        *) vc_service="$SELECTED_VC" ;;
+                    esac
+                    filter_logs_by_level "all" "$vc_service"
+                else
+                    print_warning "No deployment or Validator Client found"
+                    sleep 1
+                fi
+                ;;
+            all|ALL)
+                if [ "$has_deployment" = true ]; then
+                    clear
+                    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+                    echo -e "${CYAN}  All Services Logs (Real-time)${NC}"
+                    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+                    echo -e "${YELLOW}Press Ctrl+C to exit${NC}"
+                    echo ""
+                    filter_logs_by_level "all" ""
+                else
+                    print_warning "No deployment found"
+                    sleep 1
+                fi
+                ;;
+            3)
+                # Version Information
+                bash "$LIB_DIR/version-check.sh"
                 ;;
             0) echo "Goodbye!"; exit 0 ;;
             *) echo -e "${RED}Invalid selection${NC}"; sleep 1 ;;

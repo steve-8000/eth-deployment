@@ -7,9 +7,9 @@ services:
   # | | | (_| | | | | |_| | | | (_) | |_| \__ \  __/
   # |_|_|\__, |_| |_|\__|_| |_|\___/ \__,_|___/\___|
   #      |___/
-  lighthouse:
+  consensus-client:
     image: sigp/lighthouse:${LIGHTHOUSE_VERSION}
-    container_name: lighthouse-${NETWORK}
+    container_name: consensus-client-${NETWORK}
     ports:
       - "${CC_PORT_P2P}:9000/tcp"
       - "${CC_PORT_P2P}:9000/udp"
@@ -47,19 +47,14 @@ services:
       --import-all-attestations
       --reconstruct-historic-states
       --freezer-dir=/data/beacon/freezer
-      --http-timeout=${LIGHTHOUSE_HTTP_TIMEOUT:-120}
       --execution-timeout-multiplier=${LIGHTHOUSE_EXECUTION_TIMEOUT_MULTIPLIER:-2}
-      --execution-block-timeout=${LIGHTHOUSE_EXECUTION_BLOCK_TIMEOUT:-10}
       --disable-peer-scoring
-      --enable-backfill-rate-limiting
-      --backfill-batch-size=${LIGHTHOUSE_BACKFILL_BATCH_SIZE:-64}
-      --backfill-batch-wait=${LIGHTHOUSE_BACKFILL_BATCH_WAIT:-1}
     networks:
       - ethnode
     volumes:
-      - chain-data:/data/beacon
+      - ${PROJECT_ROOT}/data/lighthouse/${NETWORK}:/data/beacon
       - ${PROJECT_ROOT}/security/jwt/${ENV}/jwt.hex:/jwt/jwt.hex:ro
-      - logs:/data/logs
+      - ${PROJECT_ROOT}/data/logs:/data/logs
     restart: unless-stopped
     logging:
       driver: "json-file"

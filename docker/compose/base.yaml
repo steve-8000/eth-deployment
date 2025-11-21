@@ -10,7 +10,6 @@ networks:
         - subnet: 172.20.0.0/16
 
 volumes:
-  chain-data:
-  keys:
-  logs:
+  # Note: chain-data, keys, logs volumes are now replaced with bind mounts
+  # Data is stored in ${PROJECT_ROOT}/data/{client}/{network}/
 

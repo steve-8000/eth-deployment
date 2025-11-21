@@ -6,9 +6,9 @@ services:
   # | '_ \ / _ \ __| '_ \ / _ \ '__| '_ ` _ \| | '_ \ / _` |
   # | | | |  __/ |_| | | |  __/ |  | | | | | | | | | | (_| |
   # |_| |_|\___|\__|_| |_|\___|_|  |_| |_| |_|_|_| |_|\__,_|
-  nethermind:
+  execution-client:
     image: nethermind/nethermind:${NETHERMIND_VERSION}
-    container_name: nethermind-${NETWORK}
+    container_name: execution-client-${NETWORK}
     ports:
       - "${EC_PORT_P2P}:30303/tcp"
       - "${EC_PORT_P2P}:30303/udp"
@@ -32,34 +32,27 @@ services:
       --JsonRpc.Host=0.0.0.0
       --JsonRpc.Port=8545
       --JsonRpc.WebSocketsPort=8546
-      --JsonRpc.MaxBlockRange=1000
       --Sync.SnapSync=true
-      --Sync.DownloadBodiesInParallel=true
-      --Sync.DownloadReceiptsInParallel=true
       --Init.MemoryHint=${NETHERMIND_MEMORY_HINT:-16384000000}
       --Init.StoreReceipts=true
       --Blocks.TargetBlockGasLimit=${EC_GAS_LIMIT:-60000000}
+      --Blocks.GenesisTimeoutMs=${NETHERMIND_GENESIS_TIMEOUT_MS:-300000}
       --Network.MaxActivePeers=${NETHERMIND_MAX_PEERS:-100}
       --Network.P2PPort=30303
       --TxPool.Size=${NETHERMIND_TXPOOL_SIZE:-2048}
       --TxPool.PeerNotificationThreshold=${NETHERMIND_TXPOOL_PEER_NOTIFICATION:-5}
-      --TxPool.MinGasPrice=${NETHERMIND_TXPOOL_MIN_GAS_PRICE:-1000000000}
       --Pruning.CacheMb=${NETHERMIND_CACHE_MB:-8192}
-      --JsonRpc.EnableModules=${NETHERMIND_RPC_MODULES:-Eth,Net,Web3,Engine}
       --Pruning.FullPruningCompletionBehavior=AlwaysShutdown
       --Pruning.FullPruningTrigger=Manual
-      --Pruning.FullPruningMemoryBudget=0
-      --Bloom.IndexLevelBucketSizes=16,16,16,16,16,16,16,16,16,16,16,16,16,16,16,16
-      --Bloom.Migration=true
-      --Bloom.MigrationStatistics=true
-      --Bloom.MigrationProgressDb=BloomMigrationProgress
-      --Bloom.MigrationMemoryBudget=2000000000
+      --Pruning.FullPruningMemoryBudgetMb=0
+      --Bloom.Index=false
+      --Bloom.Migration=false
     networks:
       - ethnode
     volumes:
-      - chain-data:/nethermind/data
+      - ${PROJECT_ROOT}/data/nethermind/${NETWORK}:/nethermind/data
       - ${PROJECT_ROOT}/security/jwt/${ENV}/jwt.hex:/jwt/jwt.hex:ro
-      - logs:/nethermind/logs
+      - ${PROJECT_ROOT}/data/logs:/nethermind/logs
     restart: unless-stopped
     logging:
       driver: "json-file"

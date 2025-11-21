@@ -9,7 +9,7 @@ services:
   #  \__\___|_|\_\\__,_|
   teku-vc:
     image: consensys/teku:${TEKU_VERSION}
-    container_name: teku-vc-${NETWORK}
+    container_name: validator-client-${NETWORK}
     ports:
       - "${VC_PORT_HTTP}:5062"
       - "${VC_PORT_METRICS}:5064"
@@ -29,9 +29,9 @@ services:
     networks:
       - ethnode
     volumes:
-      - keys:/keys:ro
-      - chain-data:/data/teku-vc
-      - logs:/data/logs
+      - ${PROJECT_ROOT}/data/validator-client/${NETWORK}/keys:/keys:ro
+      - ${PROJECT_ROOT}/data/validator-client/${NETWORK}/teku:/data/teku-vc
+      - ${PROJECT_ROOT}/data/logs:/data/logs
     restart: unless-stopped
     logging:
       driver: "json-file"

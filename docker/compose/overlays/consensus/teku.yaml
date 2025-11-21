@@ -8,9 +8,9 @@ services:
   #   |  |  |   [_ |     \|  :  |
   #   |  |  |     ||  .  ||     |
   #   |__|  |_____||__|\_| \__,_|
-  teku:
+  consensus-client:
     image: consensys/teku:${TEKU_VERSION}
-    container_name: teku-${NETWORK}
+    container_name: consensus-client-${NETWORK}
     user: root
     ports:
       - "${CC_PORT_P2P}:9000/tcp"
@@ -41,21 +41,16 @@ services:
       --p2p-peer-lower-bound=${TEKU_P2P_PEER_LOWER_BOUND:-120}
       --p2p-peer-upper-bound=${TEKU_P2P_PEER_UPPER_BOUND:-150}
       --p2p-discovery-enabled=true
-      --p2p-advertised-ip=${TEKU_P2P_ADVERTISED_IP:-}
       --p2p-advertised-port=${CC_PORT_P2P}
       --p2p-port=${CC_PORT_P2P}
-      --p2p-quic-port=${CC_PORT_QUIC}
       --p2p-private-key-file=/data/teku/p2p-private-key
-      --p2p-direct-peers=${CC_DIRECT_PEERS:-}
-      --p2p-static-peers=${CC_TEKU_STATIC_PEERS:-}
       --p2p-subscribe-all-subnets-enabled=true
-      --validators-proposer-blocks-loading-enabled=true
     networks:
       - ethnode
     volumes:
-      - chain-data:/data/teku
+      - ${PROJECT_ROOT}/data/teku/${NETWORK}:/data/teku
       - ${PROJECT_ROOT}/security/jwt/${ENV}/jwt.hex:/jwt/jwt.hex:ro
-      - logs:/data/logs
+      - ${PROJECT_ROOT}/data/logs:/data/logs
     restart: unless-stopped
     logging:
       driver: "json-file"

@@ -6,9 +6,9 @@ services:
   # | '__/ _ \ __| '_ \ 
   # | | |  __/ |_| | | |
   # |_|  \___|\__|_| |_|
-  reth:
+  execution-client:
     image: ghcr.io/paradigmxyz/reth:${RETH_VERSION}
-    container_name: reth-${NETWORK}
+    container_name: execution-client-${NETWORK}
     ports:
       - "${EC_PORT_P2P}:30303/tcp"
       - "${EC_PORT_P2P}:30303/udp"
@@ -27,14 +27,13 @@ services:
       --log.file.directory=/root/logs
       --log.file.max-size=${RETH_LOG_MAX_SIZE:-100}
       --log.file.max-files=${RETH_LOG_MAX_FILES:-5}
-      --log.file.compress=true
       --authrpc.addr=0.0.0.0
       --authrpc.port=8551
       --authrpc.jwtsecret=/jwt/jwt.hex
       --http
       --http.addr=0.0.0.0
       --http.port=8545
-      --http.api="eth,net,web3,engine"
+      --http.api="eth,net,web3"
       --http.corsdomain="*"
       --ws
       --ws.addr=0.0.0.0
@@ -42,24 +41,17 @@ services:
       --ws.api="eth,net,web3"
       --ws.origins="*"
       --builder.gaslimit=${EC_GAS_LIMIT:-60000000}
-      --db.log-level=${RETH_DB_LOG_LEVEL:-info}
-      --txpool.max-count=${RETH_TXPOOL_MAX_COUNT:-10000}
-      --txpool.max-per-sender=${RETH_TXPOOL_MAX_PER_SENDER:-100}
-      --txpool.max-size=${RETH_TXPOOL_MAX_SIZE:-20}
+      --db.log-level=${RETH_DB_LOG_LEVEL:-Warn}
+      --txpool.max-account-slots=${RETH_TXPOOL_MAX_ACCOUNT_SLOTS:-16}
       --rpc.max-request-size=${RETH_RPC_MAX_REQUEST_SIZE:-10}
       --rpc.max-response-size=${RETH_RPC_MAX_RESPONSE_SIZE:-10}
-      --rpc.max-logs-per-request=${RETH_RPC_MAX_LOGS:-10000}
-      --rpc.max-blocks-per-request=${RETH_RPC_MAX_BLOCKS:-1000}
-      --rpc.batch.concurrency=${RETH_RPC_BATCH_CONCURRENCY:-10}
-      --rpc.batch.max-requests=${RETH_RPC_BATCH_MAX_REQUESTS:-100}
-      --db=${RETH_DB_TYPE:-rocksdb}
-      --prune=${RETH_PRUNE:-full}
+      --rpc.max-logs-per-response=${RETH_RPC_MAX_LOGS:-10000}
     networks:
       - ethnode
     volumes:
-      - chain-data:/root/.local/share/reth
+      - ${PROJECT_ROOT}/data/reth/${NETWORK}:/root/.local/share/reth
       - ${PROJECT_ROOT}/security/jwt/${ENV}/jwt.hex:/jwt/jwt.hex:ro
-      - logs:/root/logs
+      - ${PROJECT_ROOT}/data/logs:/root/logs
     restart: unless-stopped
     logging:
       driver: "json-file"
