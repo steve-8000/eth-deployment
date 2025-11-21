@@ -11,6 +11,10 @@ DOCKER_COMPOSE_DIR="$PROJECT_ROOT/docker/compose"
 OUTPUT_FILE="$PROJECT_ROOT/docker-compose.generated.yaml"
 
 # Source utilities
+if [ ! -f "$SCRIPT_DIR/utils.sh" ]; then
+    echo "Error: utils.sh not found at $SCRIPT_DIR/utils.sh" >&2
+    exit 1
+fi
 source "$SCRIPT_DIR/utils.sh"
 
 # Load configuration
@@ -212,15 +216,14 @@ if [ "$SELECTED_MEV" = "commitboost" ] || [ "$SELECTED_MEV" = "both" ]; then
     fi
 fi
 
-# Add Validator Client
+# Add Validator Client (optional - continue even if fails)
 if [ -n "$SELECTED_VC" ] && [ "$SELECTED_VC" != "web3signer" ]; then
     case $SELECTED_VC in
         lighthouse)
             echo "" >> "$OUTPUT_FILE"
             echo "  # Validator Client: Lighthouse" >> "$OUTPUT_FILE"
             if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/validator/lighthouse.yaml" "lighthouse-vc"; then
-                print_error "Failed to add Lighthouse VC service"
-                exit 1
+                print_warning "Failed to add Lighthouse VC service, continuing without validator..."
             fi
             ;;
         teku)
@@ -228,11 +231,10 @@ if [ -n "$SELECTED_VC" ] && [ "$SELECTED_VC" != "web3signer" ]; then
                 echo "" >> "$OUTPUT_FILE"
                 echo "  # Validator Client: Teku" >> "$OUTPUT_FILE"
                 if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/validator/teku.yaml" "teku-vc"; then
-                    print_error "Failed to add Teku VC service"
-                    exit 1
+                    print_warning "Failed to add Teku VC service, continuing without validator..."
                 fi
             else
-                print_warning "Teku VC overlay file not found"
+                print_warning "Teku VC overlay file not found, continuing without validator..."
             fi
             ;;
         lodestar)
@@ -240,11 +242,10 @@ if [ -n "$SELECTED_VC" ] && [ "$SELECTED_VC" != "web3signer" ]; then
                 echo "" >> "$OUTPUT_FILE"
                 echo "  # Validator Client: Lodestar" >> "$OUTPUT_FILE"
                 if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/overlays/validator/lodestar.yaml" "lodestar-vc"; then
-                    print_error "Failed to add Lodestar VC service"
-                    exit 1
+                    print_warning "Failed to add Lodestar VC service, continuing without validator..."
                 fi
             else
-                print_warning "Lodestar VC overlay file not found"
+                print_warning "Lodestar VC overlay file not found, continuing without validator..."
             fi
             ;;
     esac
@@ -264,7 +265,7 @@ if [ "$SELECTED_VC" = "web3signer" ]; then
     fi
 fi
 
-# Add DVT
+# Add DVT (optional - continue even if fails)
 if [ -n "$SELECTED_DVT" ]; then
     if [ -f "$DOCKER_COMPOSE_DIR/docker-compose.dvt.yaml" ]; then
         case $SELECTED_DVT in
@@ -272,42 +273,43 @@ if [ -n "$SELECTED_DVT" ]; then
                 echo "" >> "$OUTPUT_FILE"
                 echo "  # Obol DVT (Charon)" >> "$OUTPUT_FILE"
                 if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/docker-compose.dvt.yaml" "charon"; then
-                    print_error "Failed to add Charon service"
-                    exit 1
-                fi
-                # Also add lighthouse/lodestar DVT if needed
-                if [ -n "$SELECTED_CC" ]; then
-                    case $SELECTED_CC in
-                        lighthouse)
-                            merge_service_from_file "$DOCKER_COMPOSE_DIR/docker-compose.dvt.yaml" "lighthouse-dvt" || print_warning "Failed to add lighthouse-dvt service"
-                            ;;
-                        lodestar)
-                            merge_service_from_file "$DOCKER_COMPOSE_DIR/docker-compose.dvt.yaml" "lodestar-dvt" || print_warning "Failed to add lodestar-dvt service"
-                            ;;
-                    esac
+                    print_warning "Failed to add Charon service, continuing without DVT..."
+                else
+                    # Also add lighthouse/lodestar DVT if needed (optional)
+                    if [ -n "$SELECTED_CC" ]; then
+                        case $SELECTED_CC in
+                            lighthouse)
+                                merge_service_from_file "$DOCKER_COMPOSE_DIR/docker-compose.dvt.yaml" "lighthouse-dvt" || print_warning "Failed to add lighthouse-dvt service"
+                                ;;
+                            lodestar)
+                                merge_service_from_file "$DOCKER_COMPOSE_DIR/docker-compose.dvt.yaml" "lodestar-dvt" || print_warning "Failed to add lodestar-dvt service"
+                                ;;
+                        esac
+                    fi
                 fi
                 ;;
             ssv)
                 echo "" >> "$OUTPUT_FILE"
                 echo "  # SSV Network DVT" >> "$OUTPUT_FILE"
                 if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/docker-compose.dvt.yaml" "ssv-node"; then
-                    print_error "Failed to add SSV node service"
-                    exit 1
-                fi
-                if [ -n "${SSV_DKG_ENABLED:-}" ]; then
-                    if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/docker-compose.dvt.yaml" "ssv-dkg"; then
-                        print_warning "Failed to add SSV DKG service, continuing..."
+                    print_warning "Failed to add SSV node service, continuing without DVT..."
+                else
+                    if [ -n "${SSV_DKG_ENABLED:-}" ]; then
+                        if ! merge_service_from_file "$DOCKER_COMPOSE_DIR/docker-compose.dvt.yaml" "ssv-dkg"; then
+                            print_warning "Failed to add SSV DKG service, continuing..."
+                        fi
                     fi
                 fi
                 ;;
         esac
     else
-        print_warning "DVT compose file not found"
+        print_warning "DVT compose file not found, continuing without DVT..."
     fi
 fi
 
-# Add networks and volumes
-cat >> "$OUTPUT_FILE" <<'EOF'
+# Add networks and volumes (only if not already present)
+if ! grep -q "^networks:" "$OUTPUT_FILE"; then
+    cat >> "$OUTPUT_FILE" <<'EOF'
 
 networks:
   ethnode:
@@ -315,12 +317,19 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/16
+EOF
+fi
+
+# Add volumes (only if not already present)
+if ! grep -q "^volumes:" "$OUTPUT_FILE"; then
+    cat >> "$OUTPUT_FILE" <<'EOF'
 
 volumes:
   chain-data:
   keys:
   logs:
 EOF
+fi
 
 # Validate generated compose file
 if [ ! -s "$OUTPUT_FILE" ]; then
@@ -334,14 +343,54 @@ if ! grep -q "^services:" "$OUTPUT_FILE"; then
     exit 1
 fi
 
+# Check for duplicate keys (networks, volumes)
+local networks_count=$(grep -c "^networks:" "$OUTPUT_FILE" 2>/dev/null || echo "0")
+local volumes_count=$(grep -c "^volumes:" "$OUTPUT_FILE" 2>/dev/null || echo "0")
+
+if [ "$networks_count" -gt 1 ]; then
+    print_warning "Duplicate 'networks:' sections found. Removing duplicates..."
+    # Keep only the last networks section
+    local temp_file="${OUTPUT_FILE}.tmp"
+    if awk '/^networks:/{if(++count>1)skip=1} skip && /^[a-zA-Z]/ && !/^  /{skip=0} !skip' "$OUTPUT_FILE" > "$temp_file" 2>/dev/null; then
+        if [ -s "$temp_file" ]; then
+            mv "$temp_file" "$OUTPUT_FILE"
+        else
+            rm -f "$temp_file"
+            print_warning "Failed to remove duplicate networks, keeping original"
+        fi
+    else
+        rm -f "$temp_file"
+        print_warning "Failed to process duplicate networks, keeping original"
+    fi
+fi
+
+if [ "$volumes_count" -gt 1 ]; then
+    print_warning "Duplicate 'volumes:' sections found. Removing duplicates..."
+    # Keep only the last volumes section
+    local temp_file="${OUTPUT_FILE}.tmp"
+    if awk '/^volumes:/{if(++count>1)skip=1} skip && /^[a-zA-Z]/ && !/^  /{skip=0} !skip' "$OUTPUT_FILE" > "$temp_file" 2>/dev/null; then
+        if [ -s "$temp_file" ]; then
+            mv "$temp_file" "$OUTPUT_FILE"
+        else
+            rm -f "$temp_file"
+            print_warning "Failed to remove duplicate volumes, keeping original"
+        fi
+    else
+        rm -f "$temp_file"
+        print_warning "Failed to process duplicate volumes, keeping original"
+    fi
+fi
+
 # Validate YAML syntax if yq or python is available
 if command_exists yq; then
     if ! yq eval '.' "$OUTPUT_FILE" >/dev/null 2>&1; then
-        print_warning "YAML validation failed (yq), but continuing..."
+        print_error "YAML validation failed (yq). Please check the generated file."
+        exit 1
     fi
 elif command_exists python3; then
     if ! python3 -c "import yaml; yaml.safe_load(open('$OUTPUT_FILE'))" 2>/dev/null; then
-        print_warning "YAML validation failed (python), but continuing..."
+        print_error "YAML validation failed (python). Please check the generated file."
+        exit 1
     fi
 fi
 

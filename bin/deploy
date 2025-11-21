@@ -46,14 +46,15 @@ load_config() {
 # Save configuration
 save_config() {
     mkdir -p "$CONFIG_DIR"
-    cat > "$CONFIG_DIR/.deployment" <<EOF
-SELECTED_EC=$SELECTED_EC
-SELECTED_CC=$SELECTED_CC
-SELECTED_MEV=$SELECTED_MEV
-SELECTED_VC=$SELECTED_VC
-SELECTED_DVT=$SELECTED_DVT
-SELECTED_NETWORK=$SELECTED_NETWORK
-EOF
+    # Use printf to safely handle special characters
+    {
+        printf "SELECTED_EC=%s\n" "${SELECTED_EC:-}"
+        printf "SELECTED_CC=%s\n" "${SELECTED_CC:-}"
+        printf "SELECTED_MEV=%s\n" "${SELECTED_MEV:-}"
+        printf "SELECTED_VC=%s\n" "${SELECTED_VC:-}"
+        printf "SELECTED_DVT=%s\n" "${SELECTED_DVT:-}"
+        printf "SELECTED_NETWORK=%s\n" "${SELECTED_NETWORK:-mainnet}"
+    } > "$CONFIG_DIR/.deployment"
 }
 
 # Print header
@@ -126,13 +127,21 @@ menu_ec() {
     echo ""
     read -p "Select Execution Client [1-3, 4, 0]: " choice
     
+    # Validate input
+    if [ -z "$choice" ]; then
+        echo -e "${RED}No selection made${NC}"
+        sleep 1
+        menu_ec
+        return
+    fi
+    
     case $choice in
         1) SELECTED_EC="geth" ;;
         2) SELECTED_EC="nethermind" ;;
         3) SELECTED_EC="reth" ;;
         4) SELECTED_EC="" ;;
         0) return ;;
-        *) echo -e "${RED}Invalid selection${NC}"; sleep 1; menu_ec ;;
+        *) echo -e "${RED}Invalid selection: $choice${NC}"; sleep 1; menu_ec ;;
     esac
     save_config
 }
@@ -156,6 +165,14 @@ menu_cc() {
     echo ""
     read -p "Select Consensus Client [1-4, 5, 0]: " choice
     
+    # Validate input
+    if [ -z "$choice" ]; then
+        echo -e "${RED}No selection made${NC}"
+        sleep 1
+        menu_cc
+        return
+    fi
+    
     case $choice in
         1) SELECTED_CC="lighthouse" ;;
         2) SELECTED_CC="teku" ;;
@@ -163,7 +180,7 @@ menu_cc() {
         4) SELECTED_CC="lodestar" ;;
         5) SELECTED_CC="" ;;
         0) return ;;
-        *) echo -e "${RED}Invalid selection${NC}"; sleep 1; menu_cc ;;
+        *) echo -e "${RED}Invalid selection: $choice${NC}"; sleep 1; menu_cc ;;
     esac
     save_config
 }
@@ -195,13 +212,21 @@ menu_mev() {
     echo ""
     read -p "Select MEV option [1-4, 0]: " choice
     
+    # Validate input
+    if [ -z "$choice" ]; then
+        echo -e "${RED}No selection made${NC}"
+        sleep 1
+        menu_mev
+        return
+    fi
+    
     case $choice in
         1) SELECTED_MEV="mevboost" ;;
         2) SELECTED_MEV="commitboost" ;;
         3) SELECTED_MEV="both" ;;
         4) SELECTED_MEV="none" ;;
         0) return ;;
-        *) echo -e "${RED}Invalid selection${NC}"; sleep 1; menu_mev ;;
+        *) echo -e "${RED}Invalid selection: $choice${NC}"; sleep 1; menu_mev ;;
     esac
     save_config
 }
@@ -243,6 +268,14 @@ menu_vc_dvt() {
     echo ""
     read -p "Select Validator option [1-7, 0]: " choice
     
+    # Validate input
+    if [ -z "$choice" ]; then
+        echo -e "${RED}No selection made${NC}"
+        sleep 1
+        menu_vc_dvt
+        return
+    fi
+    
     case $choice in
         1) SELECTED_VC="lighthouse"; SELECTED_DVT="" ;;
         2) SELECTED_VC="teku"; SELECTED_DVT="" ;;
@@ -252,7 +285,7 @@ menu_vc_dvt() {
         6) SELECTED_VC="web3signer"; SELECTED_DVT="" ;;
         7) SELECTED_VC=""; SELECTED_DVT="" ;;
         0) return ;;
-        *) echo -e "${RED}Invalid selection${NC}"; sleep 1; menu_vc_dvt ;;
+        *) echo -e "${RED}Invalid selection: $choice${NC}"; sleep 1; menu_vc_dvt ;;
     esac
     save_config
 }
@@ -327,11 +360,26 @@ deploy() {
         fi
     fi
     
-    # Ensure JWT exists
+    # Check if this is a first-time deployment
+    local is_first_deployment=false
+    if [ ! -f "$PROJECT_ROOT/docker-compose.generated.yaml" ]; then
+        is_first_deployment=true
+        print_info "First-time deployment detected"
+    fi
+    
+    # Ensure JWT exists (regenerate on first deployment)
     local jwt_file="$PROJECT_ROOT/security/jwt/$SELECTED_NETWORK/jwt.hex"
-    if ! ensure_jwt "$jwt_file"; then
-        print_error "Failed to ensure JWT file exists"
-        return 1
+    if [ "$is_first_deployment" = "true" ]; then
+        print_info "Regenerating JWT secret for first-time deployment..."
+        if ! ensure_jwt "$jwt_file" "true"; then
+            print_error "Failed to ensure JWT file exists"
+            return 1
+        fi
+    else
+        if ! ensure_jwt "$jwt_file"; then
+            print_error "Failed to ensure JWT file exists"
+            return 1
+        fi
     fi
     
     echo ""
@@ -500,11 +548,11 @@ main_menu() {
             esac
         fi
         
-        echo "  3) Select Network          ${GREEN}[${network_display}]${NC}"
-        echo "  4) Select Execution Client ${GREEN}[${ec_display}]${NC}"
-        echo "  5) Select Consensus Client ${GREEN}[${cc_display}]${NC}"
-        echo "  6) Select MEV Option       ${GREEN}[${mev_display}]${NC}"
-        echo "  7) Select Validator Client / DVT ${GREEN}[${vc_display}]${NC}"
+        echo -e "  3) Select Network          ${GREEN}[${network_display}]${NC}"
+        echo -e "  4) Select Execution Client ${GREEN}[${ec_display}]${NC}"
+        echo -e "  5) Select Consensus Client ${GREEN}[${cc_display}]${NC}"
+        echo -e "  6) Select MEV Option       ${GREEN}[${mev_display}]${NC}"
+        echo -e "  7) Select Validator Client / DVT ${GREEN}[${vc_display}]${NC}"
         echo ""
         echo -e "${YELLOW}Tools:${NC}"
         echo "  8) View Generated Compose"
@@ -514,6 +562,13 @@ main_menu() {
         echo ""
         read -p "Select option [0-9]: " choice
         
+        # Validate input
+        if [ -z "$choice" ]; then
+            echo -e "${RED}No selection made${NC}"
+            sleep 1
+            continue
+        fi
+        
         case $choice in
             1) 
                 # New deployment flow
@@ -521,7 +576,17 @@ main_menu() {
                 if [ -z "$SELECTED_EC" ]; then menu_ec; fi
                 if [ -z "$SELECTED_CC" ]; then menu_cc; fi
                 if [ -z "$SELECTED_MEV" ]; then menu_mev; fi
-                if [ -z "$SELECTED_VC" ] && [ -z "$SELECTED_DVT" ]; then menu_vc_dvt; fi
+                # VC/DVT is optional - don't force selection
+                if [ -z "$SELECTED_VC" ] && [ -z "$SELECTED_DVT" ]; then
+                    echo ""
+                    print_info "Validator Client / DVT is optional. You can skip this step."
+                    read -p "Configure Validator Client / DVT now? [y/N]: " vc_choice
+                    if [[ $vc_choice =~ ^[Yy]$ ]]; then
+                        menu_vc_dvt
+                    else
+                        print_info "Skipping Validator Client / DVT configuration"
+                    fi
+                fi
                 deploy
                 ;;
             2) 

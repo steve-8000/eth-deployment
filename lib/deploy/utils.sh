@@ -100,6 +100,13 @@ validate_config() {
 # Generate JWT if not exists
 ensure_jwt() {
     local jwt_file="$1"
+    local force_regenerate="${2:-false}"
+    
+    # Force regeneration if requested (for initial deployment)
+    if [ "$force_regenerate" = "true" ] && [ -f "$jwt_file" ]; then
+        print_info "Regenerating JWT secret (force mode)..."
+        rm -f "$jwt_file"
+    fi
     
     if [ ! -f "$jwt_file" ]; then
         print_info "Generating JWT secret..."

@@ -176,25 +176,27 @@ detect_current_config() {
         network="$ENV"
     # Try to get from .env file
     elif [ -f "$PROJECT_ROOT/.env" ]; then
-        local env_network=$(grep -E "^NETWORK=" "$PROJECT_ROOT/.env" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr -d ' ' || echo "")
+        local env_network=$(grep -E "^NETWORK=" "$PROJECT_ROOT/.env" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr -d ' ' || echo "")
         if [ -n "$env_network" ]; then
             network="$env_network"
         fi
     # Try to get from deployment config
     elif [ -f "$CONFIG_DIR/.deployment" ]; then
-        local config_network=$(grep -E "^SELECTED_NETWORK=" "$CONFIG_DIR/.deployment" | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr -d ' ' || echo "")
+        local config_network=$(grep -E "^SELECTED_NETWORK=" "$CONFIG_DIR/.deployment" 2>/dev/null | head -1 | cut -d'=' -f2 | tr -d '"' | tr -d "'" | tr -d ' ' || echo "")
         if [ -n "$config_network" ]; then
             network="$config_network"
         fi
     # Last resort: try to extract from compose file
     else
-        local compose_network=$(grep -E "NETWORK=|network=" "$compose_file" | head -1 | sed -E 's/.*NETWORK=|.*network=([^ ]+).*/\1/' | tr -d '"' | tr -d "'" || echo "")
+        local compose_network=$(grep -E "NETWORK=|network=" "$compose_file" 2>/dev/null | head -1 | sed -E 's/.*NETWORK=|.*network=([^ ]+).*/\1/' | tr -d '"' | tr -d "'" || echo "")
         if [ -n "$compose_network" ]; then
             network="$compose_network"
         fi
     fi
     
-    config+="\"network\":\"${network}\""
+    # Remove trailing comma if exists before adding network
+    config="${config%,}"
+    config+=",\"network\":\"${network}\""
     
     config+="}"
     echo "$config"

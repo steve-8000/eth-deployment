@@ -273,13 +273,19 @@ save_logs() {
     
     read -p "Select service [0-$((i-1))]: " choice
     
+    # Validate input
+    if [ -z "$choice" ]; then
+        print_error "No selection made"
+        return 1
+    fi
+    
     local selected_service=""
     if [ "$choice" = "0" ]; then
         selected_service=""
-    elif [ "$choice" -ge 1 ] && [ "$choice" -le "${#service_list[@]}" ]; then
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#service_list[@]}" ]; then
         selected_service="${service_list[$((choice-1))]}"
     else
-        print_error "Invalid selection"
+        print_error "Invalid selection: $choice"
         return 1
     fi
     
@@ -353,13 +359,19 @@ view_logs() {
     
     read -p "Select service [0-$((i-1))]: " choice
     
+    # Validate input
+    if [ -z "$choice" ]; then
+        print_error "No selection made"
+        return 1
+    fi
+    
     local selected_service=""
     if [ "$choice" = "0" ]; then
         selected_service=""
-    elif [ "$choice" -ge 1 ] && [ "$choice" -le "${#service_list[@]}" ]; then
+    elif [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#service_list[@]}" ]; then
         selected_service="${service_list[$((choice-1))]}"
     else
-        print_error "Invalid selection"
+        print_error "Invalid selection: $choice"
         return 1
     fi
     
@@ -497,6 +509,13 @@ main_menu() {
         echo "  0) Back to Main Menu"
         echo ""
         read -p "Select option [0-7]: " choice
+        
+        # Validate input
+        if [ -z "$choice" ]; then
+            print_error "No selection made"
+            sleep 1
+            continue
+        fi
         
         case $choice in
             1) show_status; read -p "Press Enter to continue..."; ;;
