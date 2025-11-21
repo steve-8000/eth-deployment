@@ -17,9 +17,9 @@ setup_environment() {
     print_info "Setting up environment for $network..."
     
     # Copy template if exists
-    if [ -f "$CONFIG_DIR/templates/.env.example" ]; then
+    if [ -f "$PROJECT_ROOT/.env.example" ]; then
         if [ ! -f "$env_file" ]; then
-            cp "$CONFIG_DIR/templates/.env.example" "$env_file"
+            cp "$PROJECT_ROOT/.env.example" "$env_file"
             # Update NETWORK variable
             sed -i.bak "s/^NETWORK=.*/NETWORK=$network/" "$env_file" 2>/dev/null || \
             sed -i '' "s/^NETWORK=.*/NETWORK=$network/" "$env_file" 2>/dev/null || true
